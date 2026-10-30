@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ComplianceScan · 部署图文分步（Railway / Render）</title>
+<style>
+  :root{--bg:#0e0e16;--card:#171722;--card2:#1d1d2b;--line:#2a2a3a;--text:#e9e9f2;--muted:#9aa0b5;--primary:#6d5efc;--green:#2ed573;--purple:#a06bff;--cyan:#3ecf8e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.6}
+  header{padding:40px 6vw 20px;border-bottom:1px solid var(--line)}
+  header h1{margin:0 0 8px;font-size:26px}
+  header p{color:var(--muted);margin:0;max-width:820px}
+  .note{background:rgba(58,207,142,.12);border:1px solid rgba(58,207,142,.4);color:var(--green);padding:12px 16px;border-radius:10px;margin:18px 6vw 0;font-size:13px}
+  section{padding:30px 6vw}
+  h2{font-size:21px;display:flex;align-items:center;gap:10px;margin:0 0 6px}
+  h2 .tag{font-size:12px;padding:2px 10px;border-radius:20px;color:#fff}
+  .tag.ry{background:#a06bff}.tag.re{background:#3ecf8e}
+  .lead{color:var(--muted);margin:0 0 22px}
+  .step{display:grid;grid-template-columns:1fr 400px;gap:22px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px}
+  .step .num{display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;background:var(--primary);color:#fff;border-radius:50%;font-size:13px;font-weight:700;margin-right:8px}
+  .step h3{margin:0 0 10px;font-size:16px}
+  .step ol{margin:8px 0 0;padding-left:20px}
+  .step li{margin-bottom:7px}
+  .step code{background:#000;padding:1px 6px;border-radius:4px;font-size:12px;color:#8b7dff}
+  .step .copy{color:var(--green);font-size:12px}
+  .mock{background:var(--card2);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:center}
+  .mock svg{width:100%;height:auto;border-radius:8px;border:1px solid #ddd;display:block}
+  .mock .cap{font-size:12px;color:var(--muted)}
+  .common{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:0 6vw 40px}
+  .common h2{margin-top:0}
+  @media(max-width:820px){.step{grid-template-columns:1fr}}
+  footer{padding:24px 6vw 50px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+  a{color:#8b7dff}
+</style>
+</head>
+<body>
+<header>
+  <h1>◎ ComplianceScan 部署图文分步</h1>
+  <p>代码已初始化 git 并提交（<code>b255eaa</code>）。下面把仓库推到 GitHub 后，照图在 Railway 或 Render 点几下即可上线。两份指南任选其一。</p>
+  <div class="note">✅ 已就绪：<code>render.yaml</code> / <code>railway.json</code> / <code>Procfile</code> 都已配好；服务默认用正则引擎，免费实例即可运行。示意均为标注式占位，非真实后台截图。</div>
+</header>
+
+<!-- ===================== RAILWAY ===================== -->
+<section id="railway">
+  <h2><span class="tag ry">Railway</span> 方案（推荐：自动分配节点 + 自带 HTTPS 域名）</h2>
+  <p class="lead">免费档需绑卡验证（不扣费），每月 500 小时足够个人试水。</p>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">1</span>新建项目并关联 GitHub</h3>
+      <ol>
+        <li>打开 <a href="https://railway.app">railway.app</a> → 用 GitHub 登录。</li>
+        <li>点 <strong>New Project</strong> → 选 <strong>Deploy from GitHub repo</strong>。</li>
+        <li>首次会请求 GitHub 授权，允许后能看到你的仓库列表。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#1a1530"/>
+        <text x="10" y="16" font-size="11" fill="#cbb6ff">Railway · Dashboard</text>
+        <rect x="14" y="44" width="150" height="26" rx="8" fill="#a06bff"/>
+        <text x="48" y="61" font-size="11" fill="#fff">+ New Project</text>
+        <text x="14" y="92" font-size="10" fill="#555">选择来源：</text>
+        <rect x="14" y="100" width="170" height="20" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="114" font-size="9" fill="#888">Empty project</text>
+        <rect x="196" y="100" width="170" height="20" rx="5" fill="#ece9ff" stroke="#a06bff"/>
+        <text x="202" y="114" font-size="9" fill="#7a4ddb" font-weight="600">Deploy from GitHub repo ✓</text>
+      </svg>
+      <div class="cap">示意：New Project → Deploy from GitHub repo</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">2</span>选择本仓库并部署</h3>
+      <ol>
+        <li>在仓库列表里找到 <code>compliance-mvp</code>（或你的仓库名）。</li>
+        <li>点 <strong>Deploy</strong>。Railway 自动读 <code>railway.json</code>，用 <code>node server.js</code> 启动。</li>
+        <li>几秒后看到构建日志滚动，出现 <code>ComplianceScan MVP 运行中</code> 即成功。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#1a1530"/>
+        <text x="10" y="16" font-size="11" fill="#cbb6ff">Railway · Select Repo</text>
+        <rect x="14" y="40" width="352" height="22" rx="5" fill="#f6f6fb"/>
+        <text x="20" y="55" font-size="9" fill="#333">▼ my-github / compliance-mvp</text>
+        <rect x="14" y="74" width="352" height="22" rx="5" fill="#f6f6fb"/>
+        <text x="20" y="89" font-size="9" fill="#999">my-github / other-repo</text>
+        <rect x="240" y="112" width="110" height="26" rx="7" fill="#a06bff"/>
+        <text x="272" y="129" font-size="11" fill="#fff">Deploy ▶</text>
+        <text x="14" y="160" font-size="9" fill="#2ed573" font-weight="600">✓ 构建中… node server.js</text>
+        <text x="14" y="176" font-size="9" fill="#2ed573" font-weight="600">✓ ComplianceScan MVP 运行中</text>
+      </svg>
+      <div class="cap">示意：选仓库 → Deploy</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">3</span>填入环境变量</h3>
+      <ol>
+        <li>进入项目 → <strong>Variables</strong> → <strong>New Variable</strong>。</li>
+        <li>逐个添加（也可批量粘贴 <code>KEY=VALUE</code>）：<br><code>CREEM_API_KEY</code> / <code>CREEM_PRODUCT_ID</code> / <code>CREEM_TEST_MODE=true</code> / <code>CREEM_WEBHOOK_SECRET</code> / <code>SUPABASE_URL</code> / <code>SUPABASE_ANON_KEY</code> / <code>SUPABASE_SERVICE_KEY</code>。</li>
+        <li>保存后 Railway 会自动重启服务使变量生效。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#1a1530"/>
+        <text x="10" y="16" font-size="11" fill="#cbb6ff">Railway · Variables</text>
+        <text x="14" y="46" font-size="9" fill="#555">KEY</text><text x="200" y="46" font-size="9" fill="#555">VALUE</text>
+        <rect x="14" y="52" width="180" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="200" y="52" width="166" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="14" y="72" width="180" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="200" y="72" width="166" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="14" y="92" width="180" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="200" y="92" width="166" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="14" y="120" width="130" height="24" rx="6" fill="#a06bff"/>
+        <text x="34" y="136" font-size="10" fill="#fff">+ New Variable</text>
+        <rect x="200" y="120" width="120" height="24" rx="6" fill="#2ed573"/>
+        <text x="228" y="136" font-size="10" fill="#fff">Deploy ↓</text>
+      </svg>
+      <div class="cap">示意：Variables 添加键值对</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">4</span>生成公网域名</h3>
+      <ol>
+        <li>进入项目 → <strong>Settings → Domains</strong> → 点 <strong>Generate Domain</strong>。</li>
+        <li>得到一个 <code>xxx.up.railway.app</code>（自带 HTTPS）。</li>
+        <li>打开它即可访问你的站点。</li>
+        <li>想要自己的域名：在此填自定义域名，去 DNS 加一条 CNAME。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#1a1530"/>
+        <text x="10" y="16" font-size="11" fill="#cbb6ff">Railway · Settings / Domains</text>
+        <text x="14" y="50" font-size="10" fill="#555">Public Domain</text>
+        <rect x="14" y="58" width="300" height="20" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="72" font-size="9" fill="#2ed573" font-weight="600">https://compliancescan.up.railway.app ✓</text>
+        <rect x="14" y="96" width="160" height="24" rx="6" fill="#a06bff"/>
+        <text x="36" y="112" font-size="10" fill="#fff">Generate Domain</text>
+        <rect x="14" y="136" width="220" height="20" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="150" font-size="9" fill="#888">自定义域名（可选）：compliancescan.com</text>
+        <text x="14" y="180" font-size="9" fill="#888">DNS 加 CNAME 指向 railway 分配地址</text>
+      </svg>
+      <div class="cap">示意：Settings → Domains → Generate</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== RENDER ===================== -->
+<section id="render">
+  <h2><span class="tag re">Render</span> 方案（有免费档，冷启动稍慢）</h2>
+  <p class="lead">Free 档实例闲置后会休眠，首次访问需几秒唤醒；付费档（$7/月起）常驻。</p>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">1</span>新建 Blueprint 并连仓库</h3>
+      <ol>
+        <li>打开 <a href="https://render.com">render.com</a> → 用 GitHub 登录。</li>
+        <li>点 <strong>New</strong> → <strong>Blueprint</strong>。</li>
+        <li>连接 GitHub 仓库，选 <code>compliance-mvp</code>。Render 自动读取 <code>render.yaml</code>。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#06231a"/>
+        <text x="10" y="16" font-size="11" fill="#bff0d8">Render · New</text>
+        <rect x="14" y="42" width="160" height="26" rx="8" fill="#3ecf8e"/>
+        <text x="50" y="59" font-size="11" fill="#06231a" font-weight="600">Blueprint</text>
+        <text x="14" y="92" font-size="10" fill="#555">仓库：</text>
+        <rect x="14" y="100" width="352" height="20" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="114" font-size="9" fill="#333">▼ my-github / compliance-mvp（读取 render.yaml）</text>
+        <text x="14" y="156" font-size="9" fill="#888">Render 会自动建 Web Service：</text>
+        <text x="14" y="172" font-size="9" fill="#888">build: npm install · start: node server.js</text>
+      </svg>
+      <div class="cap">示意：New → Blueprint → 选仓库</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">2</span>确认构建/启动命令</h3>
+      <ol>
+        <li>Blueprint 预览里会显示服务名 <code>compliancescan</code>。</li>
+        <li>确认 Build Command = <code>npm install</code>、Start Command = <code>node server.js</code>（来自 render.yaml）。</li>
+        <li>点 <strong>Apply</strong> 开始首次部署。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#06231a"/>
+        <text x="10" y="16" font-size="11" fill="#bff0d8">Render · Blueprint 预览</text>
+        <rect x="14" y="40" width="352" height="22" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="55" font-size="9" fill="#333">Service: compliancescan (Web)</text>
+        <rect x="14" y="70" width="352" height="22" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="85" font-size="9" fill="#888">Build: npm install</text>
+        <rect x="14" y="98" width="352" height="22" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="113" font-size="9" fill="#888">Start: node server.js</text>
+        <rect x="250" y="130" width="116" height="26" rx="7" fill="#3ecf8e"/>
+        <text x="284" y="147" font-size="11" fill="#06231a" font-weight="600">Apply</text>
+      </svg>
+      <div class="cap">示意：确认命令 → Apply</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">3</span>填写环境变量</h3>
+      <ol>
+        <li>部署页 → <strong>Environment</strong> → 添加变量。</li>
+        <li>同 Railway：<code>CREEM_*</code> 与 <code>SUPABASE_*</code> 七个变量（见 Railway 第 3 步）。</li>
+        <li>保存后重新部署（手动 Redeploy 或自动）。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#06231a"/>
+        <text x="10" y="16" font-size="11" fill="#bff0d8">Render · Environment</text>
+        <text x="14" y="46" font-size="9" fill="#555">KEY</text><text x="220" y="46" font-size="9" fill="#555">VALUE</text>
+        <rect x="14" y="52" width="200" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="220" y="52" width="146" height="16" rx="3" fill="#111"/>
+        <rect x="14" y="72" width="200" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="220" y="72" width="146" height="16" rx="3" fill="#111"/>
+        <rect x="14" y="92" width="200" height="16" rx="3" fill="#f0f0f5"/>
+        <rect x="220" y="92" width="146" height="16" rx="3" fill="#111"/>
+        <rect x="14" y="120" width="130" height="24" rx="6" fill="#3ecf8e"/>
+        <text x="34" y="136" font-size="10" fill="#06231a">+ Add Variable</text>
+        <rect x="200" y="120" width="120" height="24" rx="6" fill="#0a8f5e"/>
+        <text x="228" y="136" font-size="10" fill="#fff">Redeploy</text>
+      </svg>
+      <div class="cap">示意：Environment 添加变量</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div>
+      <h3><span class="num">4</span>拿到 .onrender.com 域名</h3>
+      <ol>
+        <li>部署完成后，Render 分配 <code>xxx.onrender.com</code>（自带 HTTPS）。</li>
+        <li>点进去即可访问。</li>
+        <li>自定义域名在 <strong>Settings → Custom Domains</strong> 绑定。</li>
+      </ol>
+    </div>
+    <div class="mock">
+      <svg viewBox="0 0 380 200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="380" height="200" rx="10" fill="#fff" stroke="#e2e2ea"/>
+        <rect width="380" height="24" rx="10" fill="#06231a"/>
+        <text x="10" y="16" font-size="11" fill="#bff0d8">Render · 部署完成</text>
+        <rect x="14" y="44" width="180" height="22" rx="12" fill="#e8f8ef"/>
+        <text x="34" y="59" font-size="9" fill="#0a8f5e" font-weight="600">● Live</text>
+        <rect x="14" y="78" width="330" height="20" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="92" font-size="9" fill="#2ed573" font-weight="600">https://compliancescan.onrender.com ✓</text>
+        <text x="14" y="130" font-size="9" fill="#888">自定义域名（可选）：</text>
+        <rect x="14" y="138" width="260" height="20" rx="5" fill="#f0f0f5"/>
+        <text x="20" y="152" font-size="9" fill="#888">Settings → Custom Domains</text>
+      </svg>
+      <div class="cap">示意：部署完成 → 得到 onrender.com 域名</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 公共步骤 ===================== -->
+<div class="common">
+  <h2>部署后必做：接通 Creem Webhook（两平台通用）</h2>
+  <ol>
+    <li>拿到你的公网域名后，去 Creem 后台 <strong>Developers → Webhooks</strong> 新建端点。</li>
+    <li><strong>Endpoint URL</strong> 填：<code>https://你的域名/api/webhook/creem</code>（如 <code>https://compliancescan.up.railway.app/api/webhook/creem</code>）。</li>
+    <li>勾选事件 <code>subscription.paid</code> / <code>subscription.canceled</code>。</li>
+    <li>复制 <strong>Signing Secret</strong>（<code>whsec_xxx</code>）→ 加到平台环境变量 <code>CREEM_WEBHOOK_SECRET</code> 并 redeploy。</li>
+    <li>服务端已对原始 body 做 HMAC-SHA256 验签，验签失败直接拒绝，安全。</li>
+  </ol>
+  <p style="color:var(--muted);font-size:13px">本地联调 Webhook：用 ngrok 把 <code>localhost:3000</code> 暴露成公网地址，再在 Creem 指向它即可。</p>
+</div>
+
+<footer>
+  配套：<code>DEPLOY.md</code>（文字版）、<code>setup-guide.html</code>（Creem/Supabase 接入）、<code>scripts/test-*.js</code>（一键验证）。
+  部署与配置均在你自己的账号后台完成，本指南只负责把"点哪里"讲清楚。
+</footer>
+</body>
+</html>
