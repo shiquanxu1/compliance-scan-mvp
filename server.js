@@ -8,6 +8,8 @@
  *   POST /api/scan       真实合规扫描（正则 / Playwright 可切换）
  *   POST /api/checkout   Creem 结账（支持 test mode + 真实调用）
  *   POST /api/webhook/creem  Creem Webhook 验签 + 订阅状态更新（Supabase）
+ *   POST /api/generate-doc   合规文档一键生成（隐私政策 / Cookie 声明 / DPA）
+ *   POST /api/cron/monitor   每日监控定时任务（CRON_SECRET 保护）
  *
  * 说明：服务端抓取不受浏览器 CORS 限制，可抓取第三方站点做合规体检。
  */
@@ -16,7 +18,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { URL } = require('url');
+
+const { scanSite, PLAYWRIGHT_OK } = require('./lib/scanner');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -24,15 +27,6 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 // ============================================================
 // 能力开关
 // ============================================================
-const USE_PLAYWRIGHT = process.env.USE_PLAYWRIGHT === 'true';
-let playwright = null;
-try {
-  playwright = require('playwright');
-} catch (_) {
-  /* 未安装 Playwright 时自动降级为正则模式 */
-}
-const PLAYWRIGHT_OK = USE_PLAYWRIGHT && !!playwright;
-
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || '';
 const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_KEY || '';
@@ -42,192 +36,9 @@ const CREEM_TEST = process.env.CREEM_TEST_MODE === 'true';
 const CREEM_BASE = CREEM_TEST ? 'https://test-api.creem.io' : 'https://api.creem.io';
 const CREEM_CONFIGURED = !!(process.env.CREEM_API_KEY && process.env.CREEM_PRODUCT_ID);
 
-// ============================================================
-// 扫描规则
-// ============================================================
-const TRACKER_PATTERNS = [
-  { name: 'Google Analytics', re: /(google-analytics\.com|googletagmanager\.com|gtm\.js)/i },
-  { name: 'Meta Pixel', re: /(connect\.facebook\.net|facebook\.com\/tr|fbq)/i },
-  { name: 'Hotjar', re: /hotjar\.com/i },
-  { name: 'Microsoft Clarity', re: /clarity\.ms/i },
-  { name: 'Segment', re: /(segment\.com|segment\.io)/i },
-];
-function matchTrackers(text, set) {
-  for (const t of TRACKER_PATTERNS) if (t.re.test(text)) set.add(t.name);
-}
-
-const PRIVACY_HINTS = [
-  /privacy[\s-]?policy/i, /privacypolicy/i, /datenschutz/i, /privacy notice/i, /legal notice/i,
-];
-const COOKIE_CONSENT = [
-  /cookie[\s-]?consent/i, /one[\s-]?trust/i, /cookiebot/i, /\bgdpr\b/i,
-  /(accept|reject) (all )?cookies/i, /we use cookies/i, /consent management/i,
-];
-const CONSENT_TEXT =
-  /(accept|reject|allow|agree|拒绝|接受|同意).{0,20}(cookie|consent|cookie)/i;
-
-function normalizeUrl(raw) {
-  let u = (raw || '').trim();
-  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
-  return u;
-}
-
-// ---- 数据采集：正则模式（零依赖）----
-async function regexCollect(rawUrl) {
-  const target = normalizeUrl(rawUrl);
-  let html = '';
-  let httpsOk = false;
-  let fetchError = null;
-  const trackers = new Set();
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(target, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ComplianceScanBot/1.0)' },
-      redirect: 'follow',
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    httpsOk = res.url.startsWith('https://') || target.startsWith('https://');
-    const buf = await res.text();
-    html = buf.length > 3_000_000 ? buf.slice(0, 3_000_000) : buf;
-    matchTrackers(html, trackers);
-    const srcRe = /(?:src|href)=["']([^"']+)["']/gi;
-    let m;
-    while ((m = srcRe.exec(html))) matchTrackers(m[1], trackers);
-  } catch (e) {
-    fetchError = e.name === 'AbortError' ? '请求超时（8 秒）' : e.message || '无法访问目标站点';
-  }
-  const consentDetected = COOKIE_CONSENT.some((re) => re.test(html));
-  return { html, trackers: [...trackers], consentDetected, cookiesSet: false, httpsOk, fetchError };
-}
-
-// ---- 数据采集：Playwright 无头浏览器（真渲染级）----
-async function playwrightCollect(rawUrl) {
-  const target = normalizeUrl(rawUrl);
-  const browser = await playwright.chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-  const page = await browser.newPage();
-  const trackers = new Set();
-  page.on('request', (req) => matchTrackers(req.url(), trackers));
-  let html = '';
-  let httpsOk = false;
-  let consentDetected = false;
-  let cookiesSet = false;
-  let fetchError = null;
-  try {
-    const resp = await page.goto(target, { waitUntil: 'networkidle', timeout: 15000 });
-    httpsOk = (resp && resp.url().startsWith('https://')) || target.startsWith('https://');
-    html = await page.content();
-    consentDetected = CONSENT_TEXT.test(html) || COOKIE_CONSENT.some((re) => re.test(html));
-    cookiesSet = await page.evaluate(
-      () => document.cookie.length > 0 || Object.keys(localStorage).length > 0
-    );
-  } catch (e) {
-    fetchError = e.message || '浏览器渲染失败';
-  } finally {
-    await browser.close().catch(() => {});
-  }
-  return { html, trackers: [...trackers], consentDetected, cookiesSet, httpsOk, fetchError };
-}
-
-async function collect(rawUrl) {
-  if (PLAYWRIGHT_OK) {
-    try {
-      return await playwrightCollect(rawUrl);
-    } catch (_) {
-      return regexCollect(rawUrl); // 浏览器失败回退正则
-    }
-  }
-  return regexCollect(rawUrl);
-}
-
-// ---- 统一评估（与采集方式无关）----
-function evaluate(data) {
-  const { html, trackers, consentDetected, httpsOk, fetchError } = data;
-  const checks = [];
-
-  checks.push({
-    key: 'https',
-    label: 'HTTPS 加密传输',
-    pass: httpsOk,
-    weight: 15,
-    detail: httpsOk
-      ? '站点通过 HTTPS 提供服务，满足传输安全基线。'
-      : '未检测到 HTTPS。GDPR 要求个人数据在传输中加密。',
-  });
-
-  let hasPrivacy = false;
-  if (html) {
-    const links = html.match(/href=["']([^"']+)["']/gi) || [];
-    hasPrivacy = links.some((l) => PRIVACY_HINTS.some((re) => re.test(l)));
-  }
-  checks.push({
-    key: 'privacy',
-    label: '隐私政策页面',
-    pass: hasPrivacy,
-    weight: 25,
-    detail: hasPrivacy
-      ? '检测到隐私政策链接，满足 GDPR 透明性要求。'
-      : '未找到隐私政策链接。GDPR 第 13/14 条要求明确告知用户数据处理方式。',
-  });
-
-  checks.push({
-    key: 'consent',
-    label: 'Cookie 同意机制',
-    pass: consentDetected,
-    weight: 30,
-    detail: consentDetected
-      ? '检测到 Cookie / 同意机制（含渲染后检测）。'
-      : '未发现 Cookie 同意横幅。ePrivacy / GDPR 要求在设置非必要 Cookie 前取得用户同意。',
-  });
-
-  const trackerRisk = trackers.length > 0 && !consentDetected;
-  checks.push({
-    key: 'trackers',
-    label: '追踪脚本合规',
-    pass: !trackerRisk,
-    weight: 20,
-    detail: trackers.length
-      ? `检测到 ${trackers.join('、')}。${trackerRisk ? '但缺少 Cookie 同意机制，存在违规收集风险。' : '已配合同意机制，风险可控。'}`
-      : '未检测到常见追踪脚本（含动态加载）。',
-  });
-
-  let hasContact = false;
-  if (html) {
-    hasContact =
-      /(imprint|impressum|contact|@|tel:|email)/i.test(html) &&
-      /(company|ltd|limited|inc|gmbh|s\.r\.l|registered)/i.test(html);
-  }
-  checks.push({
-    key: 'entity',
-    label: '法律实体信息',
-    pass: hasContact,
-    weight: 10,
-    detail: hasContact
-      ? '检测到法律实体 / 联系信息。'
-      : '未明确展示运营主体与联系方式，建议补充 Imprint 页（欧盟强制）。',
-  });
-
-  const totalWeight = checks.reduce((s, c) => s + c.weight, 0);
-  const passedWeight = checks.reduce((s, c) => s + (c.pass ? c.weight : 0), 0);
-  const score = fetchError ? 0 : Math.round((passedWeight / totalWeight) * 100);
-  const recommendations = checks.filter((c) => !c.pass).map((c) => c.detail);
-  return { score, fetchError, checks, foundTrackers: trackers, recommendations };
-}
-
-async function scanSite(rawUrl) {
-  const data = await collect(rawUrl);
-  const ev = evaluate(data);
-  return {
-    url: normalizeUrl(rawUrl),
-    engine: PLAYWRIGHT_OK ? 'playwright' : 'regex',
-    ...ev,
-    checkedAt: new Date().toISOString(),
-  };
-}
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const FROM_EMAIL = process.env.FROM_EMAIL || 'ComplianceScan <onboarding@resend.dev>';
+const CRON_SECRET = process.env.CRON_SECRET || '';
 
 // ============================================================
 // Creem 结账 + Webhook
@@ -283,6 +94,61 @@ async function upsertSubscription(email, status, plan) {
     });
   } catch (_) {
     /* 忽略写入失败，仅记录 */
+  }
+}
+
+// ============================================================
+// 合规文档生成
+// ============================================================
+async function handleGenerateDoc(req, res) {
+  let body = '';
+  req.on('data', (c) => { if (body.length < 3_000_000) body += c; });
+  req.on('end', async () => {
+    try {
+      const { url, companyName, email, country, docType, scanResult } = JSON.parse(body || '{}');
+      if (!docType) throw new Error('缺少 docType（privacy | cookie | dpa）');
+
+      // 没有传入扫描结果则实时扫描一次
+      let scan = scanResult;
+      if (!scan && url) scan = await scanSite(url);
+
+      const { generateDoc } = require('./lib/docs');
+      const doc = generateDoc({
+        docType,
+        url: scan?.url || url || '',
+        companyName: companyName || 'Your Company Ltd.',
+        email: email || 'privacy@yourcompany.com',
+        country: country || 'United Kingdom',
+        scan,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ docType, markdown: doc, generatedAt: new Date().toISOString() }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+  });
+}
+
+// ============================================================
+// 每日监控定时任务（CRON_SECRET 保护）
+// ============================================================
+async function handleCronMonitor(req, res) {
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!CRON_SECRET || token !== CRON_SECRET) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '未授权：需要 CRON_SECRET' }));
+    return;
+  }
+  try {
+    const { runMonitor } = require('./lib/monitor');
+    const summary = await runMonitor();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, ...summary }));
+  } catch (e) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: e.message }));
   }
 }
 
@@ -343,6 +209,8 @@ const server = http.createServer(async (req, res) => {
         playwrightEnabled: PLAYWRIGHT_OK,
         creemDemo: !CREEM_CONFIGURED,
         creemTest: CREEM_TEST,
+        docGenEnabled: true,
+        monitorEnabled: !!SUPABASE_SERVICE,
       })
     );
     return;
@@ -351,9 +219,7 @@ const server = http.createServer(async (req, res) => {
   // 免费合规扫描
   if (req.method === 'POST' && req.url === '/api/scan') {
     let body = '';
-    req.on('data', (c) => {
-      if (body.length < 3_000_000) body += c;
-    });
+    req.on('data', (c) => { if (body.length < 3_000_000) body += c; });
     req.on('end', async () => {
       try {
         const { url } = JSON.parse(body || '{}');
@@ -376,9 +242,7 @@ const server = http.createServer(async (req, res) => {
   // 结账接入
   if (req.method === 'POST' && req.url === '/api/checkout') {
     let body = '';
-    req.on('data', (c) => {
-      if (body.length < 100_000) body += c;
-    });
+    req.on('data', (c) => { if (body.length < 100_000) body += c; });
     req.on('end', async () => {
       try {
         const { email } = JSON.parse(body || '{}');
@@ -396,9 +260,7 @@ const server = http.createServer(async (req, res) => {
   // Creem Webhook（先收集原始 body 用于验签）
   if (req.method === 'POST' && req.url === '/api/webhook/creem') {
     let raw = '';
-    req.on('data', (c) => {
-      if (raw.length < 1_000_000) raw += c;
-    });
+    req.on('data', (c) => { if (raw.length < 1_000_000) raw += c; });
     req.on('end', async () => {
       const signature = req.headers['creem-signature'] || req.headers['x-creem-signature'] || '';
       if (!verifyCreemWebhook(raw, signature)) {
@@ -424,6 +286,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 合规文档生成
+  if (req.method === 'POST' && req.url === '/api/generate-doc') {
+    handleGenerateDoc(req, res);
+    return;
+  }
+
+  // 每日监控定时任务
+  if (req.method === 'POST' && req.url === '/api/cron/monitor') {
+    handleCronMonitor(req, res);
+    return;
+  }
+
   if (req.method === 'GET') {
     serveStatic(req, res);
     return;
@@ -438,6 +312,7 @@ server.listen(PORT, () => {
   console.log(
     `  扫描引擎: ${PLAYWRIGHT_OK ? 'Playwright(真浏览器)' : '正则(降级)'} | ` +
       `Supabase: ${SUPABASE_ENABLED ? '已启用' : '未配置'} | ` +
-      `Creem: ${CREEM_CONFIGURED ? (CREEM_TEST ? 'Test 模式' : '生产') : 'Demo 模式'}`
+      `Creem: ${CREEM_CONFIGURED ? (CREEM_TEST ? 'Test 模式' : '生产') : 'Demo 模式'} | ` +
+      `文档生成: 开启 | 监控: ${SUPABASE_SERVICE ? '可用' : '未配置 service key'}`
   );
 });

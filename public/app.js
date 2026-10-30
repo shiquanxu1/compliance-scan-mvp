@@ -69,12 +69,12 @@ async function init() {
     sb.auth.onAuthStateChange((_e, session) => {
       currentUser = session?.user || null;
       renderAuth();
-      if (currentUser) loadHistory(); else hideHistory();
+      if (currentUser) { loadHistory(); loadMonitors(); } else { hideHistory(); hideMonitors(); }
     });
     const { data } = await sb.auth.getUser();
     currentUser = data.user || null;
     renderAuth();
-    if (currentUser) loadHistory();
+    if (currentUser) { loadHistory(); loadMonitors(); }
   } else {
     guestMode = true;
     demoNote.textContent =
@@ -383,6 +383,90 @@ function hideHistory() {
   historySection.classList.add('hidden');
 }
 
+// ---------- 每日监控 ----------
+const addMonitorBtn = document.getElementById('add-monitor-btn');
+const monitorsSection = document.getElementById('monitors');
+const monitorList = document.getElementById('monitor-list');
+const monitorSub = document.getElementById('monitor-sub');
+
+addMonitorBtn.addEventListener('click', async () => {
+  if (!currentUser) {
+    openAuth();
+    return;
+  }
+  if (!lastResult || lastResult.fetchError) {
+    alert('请先完成一次合规扫描，再将该站点加入监控。');
+    return;
+  }
+  if (!config.monitorEnabled) {
+    alert('每日监控需服务端配置 SUPABASE_SERVICE_KEY。当前为演示环境，该按钮仅展示流程。');
+    return;
+  }
+  const { error } = await sb
+    .from('monitors')
+    .upsert(
+      { user_id: currentUser.id, email: currentUser.email, url: lastResult.url, active: true },
+      { onConflict: 'user_id,url' }
+    );
+  if (error) {
+    alert('添加失败：' + error.message);
+    return;
+  }
+  await loadMonitors();
+  alert('已加入每日监控，每日自动重扫并在合规回退时邮件告警。');
+});
+
+async function loadMonitors() {
+  if (!config.supabaseEnabled || !sb || !currentUser) {
+    hideMonitors();
+    return;
+  }
+  const { data, error } = await sb
+    .from('monitors')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) { console.error(error); hideMonitors(); return; }
+  if (!data || !data.length) {
+    monitorSub.textContent = '你还没有监控任何站点。扫描后点「加入每日监控」即可。';
+    monitorList.innerHTML = '';
+    monitorsSection.classList.remove('hidden');
+    return;
+  }
+  monitorSub.textContent = '每日自动重扫，合规评分回退或新增违规时邮件告警。';
+  monitorList.innerHTML = data
+    .map(
+      (m) => `
+      <div class="history-item">
+        <div>
+          <div class="h-url">${escapeHtml(m.url)}</div>
+          <div class="h-meta">${
+            m.last_scan_at ? '上次扫描 ' + new Date(m.last_scan_at).toLocaleString() : '尚未首次扫描'
+          }${m.active ? '' : ' · 已暂停(订阅失效)'}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="h-score" style="color:${m.last_score != null ? scoreColor(m.last_score) : 'var(--muted)'}">${
+        m.last_score != null ? m.last_score : '—'
+      }</div>
+          <span class="logout" data-del="${encodeURIComponent(m.url)}">移除</span>
+        </div>
+      </div>`
+    )
+    .join('');
+  monitorsSection.classList.remove('hidden');
+  monitorList.querySelectorAll('[data-del]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const url = decodeURIComponent(el.dataset.del);
+      if (!confirm(`确认移除监控：${url}？`)) return;
+      const { error } = await sb.from('monitors').delete().eq('user_id', currentUser.id).eq('url', url);
+      if (error) { alert('移除失败：' + error.message); return; }
+      loadMonitors();
+    });
+  });
+}
+function hideMonitors() {
+  monitorsSection.classList.add('hidden');
+}
+
 function saveGuestHistory(data) {
   const arr = getGuestHistory();
   arr.unshift({
@@ -404,5 +488,96 @@ async function saveHistory(data) {
   loadHistory();
   return true;
 }
+
+// ---------- 合规文档生成 ----------
+const genDocBtn = document.getElementById('gen-doc-btn');
+const docModal = document.getElementById('doc-modal');
+const docClose = document.getElementById('doc-close');
+const docForm = document.getElementById('doc-form');
+const docType = document.getElementById('doc-type');
+const docCompany = document.getElementById('doc-company');
+const docEmail = document.getElementById('doc-email');
+const docCountry = document.getElementById('doc-country');
+const docSubmit = document.getElementById('doc-submit');
+const docMsg = document.getElementById('doc-msg');
+const docResult = document.getElementById('doc-result');
+const docResultTitle = document.getElementById('doc-result-title');
+const docPreview = document.getElementById('doc-preview');
+const docCopy = document.getElementById('doc-copy');
+const docDownload = document.getElementById('doc-download');
+let lastDocMarkdown = '';
+
+genDocBtn.addEventListener('click', () => {
+  docModal.classList.remove('hidden');
+  docResult.classList.add('hidden');
+  docMsg.textContent = '';
+  // 已登录时预填邮箱
+  if (currentUser && !docEmail.value) docEmail.value = currentUser.email;
+  if (lastResult?.url && !docCompany.value) {
+    // 尝试从 URL 推导公司名占位
+  }
+});
+docClose.addEventListener('click', () => docModal.classList.add('hidden'));
+docModal.addEventListener('click', (e) => {
+  if (e.target === docModal) docModal.classList.add('hidden');
+});
+
+docForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!lastResult) {
+    docMsg.className = 'auth-msg error';
+    docMsg.textContent = '请先完成一次扫描再生成文档。';
+    return;
+  }
+  docSubmit.disabled = true;
+  docSubmit.textContent = '生成中…';
+  docMsg.textContent = '';
+  try {
+    const res = await fetch('/api/generate-doc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        docType: docType.value,
+        companyName: docCompany.value.trim(),
+        email: docEmail.value.trim(),
+        country: docCountry.value.trim(),
+        url: lastResult.url,
+        scanResult: lastResult,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '生成失败');
+    lastDocMarkdown = data.markdown;
+    docResultTitle.textContent =
+      (data.docType === 'cookie' ? 'Cookie 声明' : data.docType === 'dpa' ? '数据处理协议 (DPA)' : '隐私政策') +
+      ' · 草稿';
+    docPreview.textContent = data.markdown;
+    docResult.classList.remove('hidden');
+  } catch (err) {
+    docMsg.className = 'auth-msg error';
+    docMsg.textContent = '⚠️ ' + err.message;
+  } finally {
+    docSubmit.disabled = false;
+    docSubmit.textContent = '生成';
+  }
+});
+
+docCopy.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(lastDocMarkdown);
+    docCopy.textContent = '已复制 ✓';
+    setTimeout(() => (docCopy.textContent = '复制'), 1500);
+  } catch (_) {
+    alert('复制失败，请手动选择文本复制。');
+  }
+});
+docDownload.addEventListener('click', () => {
+  const blob = new Blob([lastDocMarkdown], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `compliance-${docType.value}-${Date.now()}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
 
 init();

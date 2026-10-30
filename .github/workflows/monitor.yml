@@ -1,0 +1,18 @@
+name: Daily Compliance Monitor
+
+on:
+  schedule:
+    # 每天 UTC 02:00 运行（≈ 北京时间 10:00）。可改 cron 表达式调整。
+    - cron: '0 2 * * *'
+  workflow_dispatch: {} # 允许手动在 Actions 页面触发测试
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 触发每日监控
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "https://${{ secrets.SITE_URL }}/api/cron/monitor"
