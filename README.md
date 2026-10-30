@@ -5,17 +5,19 @@
 
 ## 已实现功能
 
-1. **免费合规扫描**（服务真实抓取 + 规则评估）
-   - HTTPS、隐私政策、Cookie 同意、追踪脚本、法律实体信息 5 项检查
-   - 0–100 评分 + 逐项结果 + 整改建议
+1. **免费合规扫描**（服务真实抓取 + 规则评估），输出**两个独立维度**评分：
+   - **GDPR / ePrivacy 基础合规**：HTTPS、隐私政策、Cookie 同意、追踪脚本、法律实体信息 5 项检查
+   - **WCAG 2.1 无障碍**：`<html lang>`、页面标题、图片 alt、表单标签、链接/按钮文本、标题结构 6 项检查（对应欧盟 Web Accessibility Directive / EN 301 549）
+   - 各自 0–100 评分 + 逐项结果 + 整改建议
    - 引擎可切换：**正则**（零依赖）或 **Playwright 真浏览器**（覆盖 JS 渲染的横幅与动态追踪）
-2. **用户体系（Supabase）**：注册 / 登录，扫描结果自动存入 `scans` 表（RLS 隔离，只看自己的）
-3. **支付（MoR，支持多通道切换）**：默认 **Creem**（无需海外主体收全球钱）；可切 **Paddle**（同为 MoR，大陆个人可用）；**Stripe** 仅提供骨架（需海外公司主体，大陆个人不开放）。均支持 **test 模式** 与 **Webhook 验签** 自动更新订阅状态
-4. **合规文档一键生成**：基于扫描结果 + 公司信息，生成**隐私政策 / Cookie 声明 / DPA（数据处理协议）**草稿（Markdown，可复制/下载）
-5. **每日监控 + 邮件告警**：用户把站点加入 `monitors` 表，定时任务每日重扫，合规评分回退或新增违规时通过 **Resend** 发告警邮件；订阅失效自动暂停监控
-6. **监控评分趋势图**：每次扫描后追加历史评分（`score_history` jsonb），前端一键展开 **SVG 折线图**（含及格线 80、近 30 次），直观看到合规漂移
-7. **告警邮件模板美化**：响应式 HTML 邮件，含品牌头、新增/恢复违规清单、近期趋势缩略图与「查看详情」按钮
-8. 零硬后端依赖：Node 原生 http + 全局 fetch；Playwright 动态加载，未装自动降级
+2. **多站点套餐**：Free / Starter(¥19) / Pro(¥49) / Agency(¥149) 四档，按监控站点数分级；结账携带 `plan` 参数，Webhook 回写订阅档位
+3. **用户体系（Supabase）**：注册 / 登录，扫描结果自动存入 `scans` 表（RLS 隔离，只看自己的）
+4. **支付（MoR，支持多通道切换）**：默认 **Creem**（无需海外主体收全球钱）；可切 **Paddle**（同为 MoR，大陆个人可用，前端用 Paddle.js 拉起 checkout）；**Stripe** 仅提供骨架（需海外公司主体，大陆个人不开放）。均支持 **test 模式** 与 **Webhook 验签** 自动更新订阅状态
+5. **合规文档一键生成**：基于扫描结果 + 公司信息，生成**隐私政策 / Cookie 声明 / DPA（数据处理协议）**草稿（Markdown，可复制/下载）
+6. **每日监控 + 邮件告警**：用户把站点加入 `monitors` 表，定时任务每日重扫，合规评分回退或新增违规时通过 **Resend** 发告警邮件；订阅失效自动暂停监控
+7. **监控评分趋势图**：每次扫描后追加历史评分（`score_history` jsonb），前端一键展开 **SVG 折线图**（含及格线 80、近 30 次），直观看到合规漂移
+8. **告警邮件模板美化**：响应式 HTML 邮件，含品牌头、新增/恢复违规清单、近期趋势缩略图与「查看详情」按钮
+9. 零硬后端依赖：Node 原生 http + 全局 fetch；Playwright 动态加载，未装自动降级
 
 ## 运行
 
@@ -137,11 +139,28 @@ USE_PLAYWRIGHT=true npm start
 PAYMENT_PROVIDER=paddle
 PADDLE_API_KEY=your_paddle_key
 PADDLE_PRICE_ID=pri_xxx
-PADDLE_SANDBOX=true   # 先用沙箱测试
+PADDLE_SANDBOX=true       # 先用沙箱测试
+PADDLE_CLIENT_TOKEN=your_client_token   # Paddle.js 前端令牌（Developer Tools 获取），用于前端打开 hosted checkout
 ```
+
+前端 `goCheckout` 会：创建 Paddle 交易 → 加载 `Paddle.js` → `Paddle.Initialize({ token })` → `Paddle.Checkout.open({ transactionId })`；沙箱自动切换 `Paddle.Environment.set('sandbox')`。
 
 - Creem / Paddle 都是 MoR（Merchant of Record），把全球增值税/GST 合规甩给平台，个人最省心。
 - Stripe 是 PSP，自己承担税务合规，且对中国大陆个人不开放——除非你有海外主体，否则别碰。
+
+## ⑧ 端到端验证（一键跑通整站链路）
+
+部署 / 配好密钥后，一条命令验证每一环真实可用：
+
+```bash
+node server.js                 # 先启动（已加载 .env）
+node scripts/e2e-verify.js     # 另开终端运行验证
+# 或指定线上地址：BASE_URL=https://你的域名 node scripts/e2e-verify.js
+```
+
+脚本依次检查：① 配置能力 → ② 合规扫描(含 WCAG) → ③ 结账链路(含 Paddle/Stripe 分发) → ④ 每日监控 cron → ⑤ 合规文档生成，并在结尾列出**仍需你亲自在第三方后台完成**的待办（脚本无法替你登录 Creem/Supabase 等账号）。
+
+> 说明：结账仅创建 checkout，不会真扣款；真实扣款 + Webhook 订阅回写需你用浏览器走完支付并配置后台 Webhook。
 
 ## 技术栈
 
@@ -157,11 +176,14 @@ PADDLE_SANDBOX=true   # 先用沙箱测试
 
 ## 升级路线（产品化）
 
-- ✅ 持续监控：定时任务每日重扫 + Resend 邮件告警（对应 ¥19/月档）
+- ✅ 持续监控：定时任务每日重扫 + Resend 邮件告警（多档套餐对应）
 - ✅ 监控趋势图：历史评分 SVG 折线，运营可视化
 - ✅ 告警邮件模板：响应式精美 HTML
 - ✅ 合规文档生成：基于扫描结果一键生成隐私政策 / DPA / Cookie 声明
-- ✅ 支付多通道：Creem 默认，Paddle 备选，Stripe 骨架
+- ✅ 支付多通道：Creem 默认，Paddle（含 Paddle.js 前端集成）备选，Stripe 骨架
+- ✅ WCAG 无障碍维度：与 GDPR 并列的第二评分，覆盖欧盟无障碍指令
+- ✅ 多站点套餐：Free/Starter/Pro/Agency 四档，结账带 plan，Webhook 回写档位
+- ✅ 端到端验证脚本：一键跑通整站链路 + 待办清单
 - 部署：Railway / Render / VPS（`node server.js`）；上 Vercel 需改 serverless function
 
 ## 合规提示（给运营者自己）

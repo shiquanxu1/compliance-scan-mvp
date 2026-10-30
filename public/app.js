@@ -13,6 +13,10 @@ const scoreUrl = document.getElementById('score-url');
 const scoreSummary = document.getElementById('score-summary');
 const engineTag = document.getElementById('engine-tag');
 const checksEl = document.getElementById('checks');
+const wcagBox = document.getElementById('wcag-box');
+const wcagScoreEl = document.getElementById('wcag-score');
+const wcagSummary = document.getElementById('wcag-summary');
+const wcagChecksEl = document.getElementById('wcag-checks');
 const ringFg = document.getElementById('ring-fg');
 const trackersBox = document.getElementById('trackers-box');
 const trackersEl = document.getElementById('trackers');
@@ -21,7 +25,7 @@ const recoList = document.getElementById('reco-list');
 const saveNote = document.getElementById('save-note');
 const errorBox = document.getElementById('error-box');
 const checkoutBtn = document.getElementById('checkout-btn');
-const priceBtn = document.getElementById('price-btn');
+const priceGrid = document.getElementById('price-grid');
 const subStatus = document.getElementById('sub-status');
 const demoNote = document.getElementById('demo-note');
 const authArea = document.getElementById('auth-area');
@@ -63,6 +67,7 @@ async function init() {
     const res = await fetch('/api/config');
     config = await res.json();
   } catch (_) {}
+  renderPricing();
 
   if (config.supabaseEnabled && window.supabase) {
     sb = window.supabase.createClient(config.supabaseUrl, config.supabaseAnon);
@@ -149,6 +154,7 @@ function render(data) {
     scoreLabel.style.color = 'var(--red)';
     scoreSummary.textContent = data.fetchError + '。请确认域名正确且站点可公开访问。';
     checksEl.innerHTML = '';
+    wcagBox.classList.add('hidden');
     trackersBox.classList.add('hidden');
     recoBox.classList.add('hidden');
     result.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -177,6 +183,8 @@ function render(data) {
     )
     .join('');
 
+  renderWcag(data.wcag);
+
   if (data.foundTrackers && data.foundTrackers.length) {
     trackersEl.innerHTML = data.foundTrackers.map((t) => `<span class="chip">${t}</span>`).join('');
     trackersBox.classList.remove('hidden');
@@ -192,6 +200,33 @@ function render(data) {
   }
 
   result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderWcag(wcag) {
+  if (!wcag || typeof wcag.score !== 'number') {
+    wcagBox.classList.add('hidden');
+    return;
+  }
+  wcagBox.classList.remove('hidden');
+  const s = wcag.score;
+  wcagScoreEl.textContent = String(s);
+  wcagScoreEl.style.background = scoreColor(s);
+  wcagSummary.textContent =
+    s >= 80
+      ? '无障碍支持良好，符合 WCAG 2.1 AA 大部分要求。'
+      : '存在无障碍缺陷，可能影响欧盟 / 英国合规（EN 301 549）与用户体验。';
+  wcagChecksEl.innerHTML = (wcag.checks || [])
+    .map(
+      (c) => `
+      <div class="check ${c.pass ? 'pass' : 'fail'}">
+        <div class="check-icon">${c.pass ? '✓' : '✕'}</div>
+        <div class="check-body">
+          <div class="check-label">${c.label}<span class="weight">权重 ${c.weight}</span></div>
+          <div class="check-detail">${c.detail}</div>
+        </div>
+      </div>`
+    )
+    .join('');
 }
 
 // 扫描后：保存历史 / 提示
@@ -215,19 +250,28 @@ async function afterScan(data) {
 }
 
 // ---------- 结账 ----------
-async function goCheckout() {
+async function goCheckout(plan) {
+  plan = plan || 'starter';
   checkoutBtn.disabled = true;
-  priceBtn.disabled = true;
   const original = checkoutBtn.textContent;
   checkoutBtn.textContent = '跳转中…';
   try {
-    const body = currentUser ? JSON.stringify({ email: currentUser.email }) : '{}';
+    const body = currentUser
+      ? JSON.stringify({ email: currentUser.email, plan })
+      : JSON.stringify({ plan });
     const res = await fetch('/api/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
     });
     const data = await res.json();
+
+    // Paddle 真实结账：用 Paddle.js 打开 hosted checkout
+    if (data.provider === 'paddle' && data.transactionId && config.paddleClientToken) {
+      await openPaddleCheckout(data);
+      checkoutBtn.textContent = original;
+      return;
+    }
     if (data.checkoutUrl) {
       window.location.href = data.checkoutUrl;
       return;
@@ -250,17 +294,62 @@ async function goCheckout() {
     alert('结账失败：' + err.message);
   } finally {
     checkoutBtn.disabled = false;
-    priceBtn.disabled = false;
     if (checkoutBtn.textContent === '跳转中…') checkoutBtn.textContent = original;
   }
 }
+
+function loadPaddleScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Paddle) return resolve(window.Paddle);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    s.async = true;
+    s.onload = () => resolve(window.Paddle);
+    s.onerror = () => reject(new Error('Paddle.js 加载失败'));
+    document.head.appendChild(s);
+  });
+}
+async function openPaddleCheckout(data) {
+  const Paddle = await loadPaddleScript();
+  if (data.sandbox) Paddle.Environment.set('sandbox');
+  Paddle.Initialize({ token: config.paddleClientToken });
+  Paddle.Checkout.open({ transactionId: data.transactionId });
+}
+
 function showSubStatus(msg, ok) {
   subStatus.textContent = msg;
   subStatus.className = 'sub-status ' + (ok ? 'ok' : 'error');
   subStatus.classList.remove('hidden');
 }
-checkoutBtn.addEventListener('click', goCheckout);
-priceBtn.addEventListener('click', goCheckout);
+checkoutBtn.addEventListener('click', () => goCheckout('starter'));
+
+// 多档定价卡片渲染（依据 /api/config 的 plans）
+function renderPricing() {
+  if (!priceGrid || !Array.isArray(config.plans)) return;
+  priceGrid.innerHTML = config.plans
+    .map((p) => {
+      const price = p.priceMonthly === 0 ? '免费' : `¥${p.priceMonthly}<span>/月</span>`;
+      const cta =
+        p.priceMonthly === 0
+          ? `<button class="btn-ghost price-btn" data-plan="${p.id}">免费开始</button>`
+          : `<button class="btn-primary price-btn" data-plan="${p.id}">订阅 ${p.name}</button>`;
+      const feats = p.features.map((f) => `<li>✓ ${f}</li>`).join('');
+      const sites =
+        p.monitorSites === 0 ? '手动扫描' : `${p.monitorSites} 站点监控`;
+      return `
+      <div class="price-card${p.id === 'pro' ? ' featured' : ''}">
+        <div class="price-name">${p.name}</div>
+        <div class="price">${price}</div>
+        <div class="price-sites">${sites}</div>
+        <ul>${feats}</ul>
+        ${cta}
+      </div>`;
+    })
+    .join('');
+  priceGrid.querySelectorAll('.price-btn').forEach((b) => {
+    b.addEventListener('click', () => goCheckout(b.dataset.plan));
+  });
+}
 
 // ---------- 登录 / 历史 ----------
 function renderAuth() {

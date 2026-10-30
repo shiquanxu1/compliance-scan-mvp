@@ -49,6 +49,7 @@ const PADDLE_API_KEY = process.env.PADDLE_API_KEY || '';
 const PADDLE_PRICE = process.env.PADDLE_PRICE_ID || '';
 const PADDLE_SANDBOX = process.env.PADDLE_SANDBOX === 'true';
 const PADDLE_BASE = PADDLE_SANDBOX ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
+const PADDLE_CLIENT_TOKEN = process.env.PADDLE_CLIENT_TOKEN || '';
 const PAYMENT_CONFIGURED =
   PAYMENT_PROVIDER === 'stripe'
     ? !!(STRIPE_SECRET && STRIPE_PRICE)
@@ -56,22 +57,31 @@ const PAYMENT_CONFIGURED =
     ? !!(PADDLE_API_KEY && PADDLE_PRICE)
     : CREEM_CONFIGURED;
 
+// 套餐定义：监控站点数上限 + 价格（月）。free 为注册即可用的手动扫描档。
+const PLANS = [
+  { id: 'free', name: 'Free', priceMonthly: 0, monitorSites: 0, features: ['手动合规扫描', '合规文档生成', 'WCAG 无障碍检测'] },
+  { id: 'starter', name: 'Starter', priceMonthly: 19, monitorSites: 1, features: ['1 个站点每日监控', '违规邮件告警', '全部合规文档模板', '趋势图'] },
+  { id: 'pro', name: 'Pro', priceMonthly: 49, monitorSites: 10, features: ['10 个站点每日监控', '违规邮件告警', 'WCAG 报告', '趋势图 / 导出'] },
+  { id: 'agency', name: 'Agency', priceMonthly: 149, monitorSites: 100, features: ['100 个站点每日监控', '团队席位', '白标报告', '优先级支持'] },
+];
+
 // ============================================================
 // Creem 结账 + Webhook
 // ============================================================
-async function createCheckout(email) {
-  if (PAYMENT_PROVIDER === 'stripe') return createCheckoutStripe(email);
-  if (PAYMENT_PROVIDER === 'paddle') return createCheckoutPaddle(email);
-  return createCheckoutCreem(email);
+async function createCheckout(email, plan) {
+  if (PAYMENT_PROVIDER === 'stripe') return createCheckoutStripe(email, plan);
+  if (PAYMENT_PROVIDER === 'paddle') return createCheckoutPaddle(email, plan);
+  return createCheckoutCreem(email, plan);
 }
 
-async function createCheckoutCreem(email) {
+async function createCheckoutCreem(email, plan) {
   const apiKey = process.env.CREEM_API_KEY;
   const productId = process.env.CREEM_PRODUCT_ID;
   if (!apiKey || !productId) {
     return {
       demo: true,
       provider: 'creem',
+      plan: plan || 'starter',
       checkoutUrl: 'https://www.creem.io',
       message: '未配置 Creem API Key，当前为演示跳转。在 .env 填入真实密钥后即为真实结账（无需海外主体）。',
     };
@@ -82,7 +92,7 @@ async function createCheckoutCreem(email) {
     body: JSON.stringify({
       product_id: productId,
       customer: email ? { email } : undefined,
-      metadata: { plan: 'monitor-monthly' },
+      metadata: { plan: plan || 'starter' },
     }),
   });
   const d = await res.json();
@@ -90,12 +100,13 @@ async function createCheckoutCreem(email) {
   return { demo: false, provider: 'creem', testMode: CREEM_TEST, checkoutUrl: d.checkout_url };
 }
 
-async function createCheckoutStripe(email) {
+async function createCheckoutStripe(email, plan) {
   // 注意：Stripe 不对中国大陆个人开放，需香港/海外公司主体 + 港卡。此处仅提供代码骨架。
   if (!STRIPE_SECRET || !STRIPE_PRICE) {
     return {
       demo: true,
       provider: 'stripe',
+      plan: plan || 'starter',
       checkoutUrl: 'https://stripe.com',
       message: '未配置 Stripe 密钥（STRIPE_SECRET_KEY / STRIPE_PRICE_ID）。注意 Stripe 需海外主体，大陆个人不开放。',
     };
@@ -104,7 +115,7 @@ async function createCheckoutStripe(email) {
   body.append('mode', 'subscription');
   body.append('line_items[0][price]', STRIPE_PRICE);
   body.append('line_items[0][quantity]', '1');
-  body.append('success_url', `${SITE_URL}?checkout=success`);
+  body.append('success_url', `${SITE_URL}?checkout=success&plan=${plan || 'starter'}`);
   body.append('cancel_url', SITE_URL);
   if (email) body.append('customer_email', email);
   const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -117,12 +128,13 @@ async function createCheckoutStripe(email) {
   return { demo: false, provider: 'stripe', checkoutUrl: d.url };
 }
 
-async function createCheckoutPaddle(email) {
+async function createCheckoutPaddle(email, plan) {
   // Paddle 是 MoR（代收代付/代缴税），与 Creem 同类，中国大陆个人可用，无需 VAT 注册。
   if (!PADDLE_API_KEY || !PADDLE_PRICE) {
     return {
       demo: true,
       provider: 'paddle',
+      plan: plan || 'starter',
       checkoutUrl: 'https://www.paddle.com',
       message: '未配置 Paddle 密钥（PADDLE_API_KEY / PADDLE_PRICE_ID）。Paddle 为 MoR，大陆个人可用，无需海外主体。',
     };
@@ -133,7 +145,7 @@ async function createCheckoutPaddle(email) {
     headers: { Authorization: `Bearer ${PADDLE_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       items: [{ price_id: PADDLE_PRICE, quantity: 1 }],
-      custom_data: { plan: 'monitor-monthly' },
+      custom_data: { plan: plan || 'starter' },
       ...(email ? { customer_email: email } : {}),
     }),
   });
@@ -291,9 +303,11 @@ const server = http.createServer(async (req, res) => {
         playwrightEnabled: PLAYWRIGHT_OK,
         paymentProvider: PAYMENT_PROVIDER,
         paymentDemo: !PAYMENT_CONFIGURED,
+        paddleClientToken: PAYMENT_PROVIDER === 'paddle' ? PADDLE_CLIENT_TOKEN : '',
         creemTest: CREEM_TEST,
         docGenEnabled: true,
         monitorEnabled: !!SUPABASE_SERVICE,
+        plans: PLANS,
       })
     );
     return;
@@ -328,8 +342,8 @@ const server = http.createServer(async (req, res) => {
     req.on('data', (c) => { if (body.length < 100_000) body += c; });
     req.on('end', async () => {
       try {
-        const { email } = JSON.parse(body || '{}');
-        const result = await createCheckout(email);
+        const { email, plan } = JSON.parse(body || '{}');
+        const result = await createCheckout(email, plan || 'starter');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (e) {
@@ -355,11 +369,15 @@ const server = http.createServer(async (req, res) => {
         const evt = JSON.parse(raw);
         const email = evt?.object?.customer?.email || evt?.customer?.email;
         const status = evt?.event_type || 'unknown';
+        const plan =
+          evt?.object?.metadata?.plan ||
+          evt?.object?.custom_data?.plan ||
+          evt?.custom_data?.plan ||
+          'starter';
         if (email) {
-          const plan = 'monitor-monthly';
           await upsertSubscription(email, status, plan);
         }
-        console.log('[webhook] Creem 事件:', evt?.event_type, email || '');
+        console.log('[webhook] Creem 事件:', evt?.event_type, email || '', 'plan:', plan);
       } catch (e) {
         console.error('[webhook] 解析失败', e.message);
       }
