@@ -214,7 +214,7 @@ async function handleGenerateDoc(req, res) {
         email: email || 'privacy@yourcompany.com',
         country: country || 'United Kingdom',
         scan,
-        language: language || 'zh',
+        language: language || 'en',
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ docType, markdown: doc, generatedAt: new Date().toISOString() }));
