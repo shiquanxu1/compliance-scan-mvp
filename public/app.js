@@ -648,6 +648,7 @@ const docType = document.getElementById('doc-type');
 const docCompany = document.getElementById('doc-company');
 const docEmail = document.getElementById('doc-email');
 const docCountry = document.getElementById('doc-country');
+const docLang = document.getElementById('doc-lang');
 const docSubmit = document.getElementById('doc-submit');
 const docMsg = document.getElementById('doc-msg');
 const docResult = document.getElementById('doc-result');
@@ -691,6 +692,7 @@ docForm.addEventListener('submit', async (e) => {
         companyName: docCompany.value.trim(),
         email: docEmail.value.trim(),
         country: docCountry.value.trim(),
+        language: docLang.value,
         url: lastResult.url,
         scanResult: lastResult,
       }),

@@ -199,7 +199,7 @@ async function handleGenerateDoc(req, res) {
   req.on('data', (c) => { if (body.length < 3_000_000) body += c; });
   req.on('end', async () => {
     try {
-      const { url, companyName, email, country, docType, scanResult } = JSON.parse(body || '{}');
+      const { url, companyName, email, country, docType, scanResult, language } = JSON.parse(body || '{}');
       if (!docType) throw new Error('缺少 docType（privacy | cookie | dpa | terms | refund）');
 
       // 没有传入扫描结果则实时扫描一次
@@ -214,6 +214,7 @@ async function handleGenerateDoc(req, res) {
         email: email || 'privacy@yourcompany.com',
         country: country || 'United Kingdom',
         scan,
+        language: language || 'zh',
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ docType, markdown: doc, generatedAt: new Date().toISOString() }));

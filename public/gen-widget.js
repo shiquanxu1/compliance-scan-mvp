@@ -56,6 +56,7 @@
       '<label>公司 / 站点主体名称<input name="company" placeholder="如 Acme Ltd." required></label>' +
       '<label>联系邮箱<input name="email" type="email" placeholder="legal@yourcompany.com" required></label>' +
       '<label>注册国家 / 地区<input name="country" value="United Kingdom"></label>' +
+      '<label>语言<select name="lang"><option value="zh">中文</option><option value="en">English</option></select></label>' +
       '<label>网站网址（可选，用于结合扫描）<input name="url" placeholder="https://example.com"></label>' +
       '<button type="submit" class="gw-submit">生成草稿</button>' +
       '<p class="gw-msg"></p>' +
@@ -92,6 +93,7 @@
         email: form.querySelector('[name=email]').value.trim(),
         country: form.querySelector('[name=country]').value.trim(),
         url: form.querySelector('[name=url]').value.trim(),
+        language: form.querySelector('[name=lang]').value,
       };
       submit.disabled = true;
       submit.textContent = '生成中…';
