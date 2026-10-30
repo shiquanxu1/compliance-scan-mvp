@@ -699,7 +699,7 @@ docForm.addEventListener('submit', async (e) => {
     if (!res.ok) throw new Error(data.error || '生成失败');
     lastDocMarkdown = data.markdown;
     docResultTitle.textContent =
-      (data.docType === 'cookie' ? 'Cookie 声明' : data.docType === 'dpa' ? '数据处理协议 (DPA)' : '隐私政策') +
+      (data.docType === 'cookie' ? 'Cookie 声明' : data.docType === 'dpa' ? '数据处理协议 (DPA)' : data.docType === 'terms' ? '服务条款' : data.docType === 'refund' ? '退款政策' : '隐私政策') +
       ' · 草稿';
     docPreview.textContent = data.markdown;
     docResult.classList.remove('hidden');
