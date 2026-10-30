@@ -29,8 +29,8 @@ function loadEnv() {
 loadEnv();
 
 const url = process.env.SUPABASE_URL;
-const anon = process.env.SUPABASE_ANON;
-const service = process.env.SUPABASE_SERVICE_ROLE;
+const anon = process.env.SUPABASE_ANON_KEY;
+const service = process.env.SUPABASE_SERVICE_KEY;
 
 (async () => {
   if (!url || !anon) {
