@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ComplianceScan — 监控与文档功能配置清单</title>
+<style>
+  :root{
+    --bg:#0b0b12; --bg2:#14141f; --card:#1a1a28; --border:#2a2a3d;
+    --text:#ececf3; --muted:#9aa0b4; --purple:#8b5cf6; --green:#22c55e; --orange:#f59e0b; --red:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.6}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 22px 80px}
+  h1{font-size:26px;margin:0 0 6px}
+  h2{font-size:19px;margin:38px 0 14px;padding-left:12px;border-left:4px solid var(--purple)}
+  .sub{color:var(--muted);margin:0 0 10px}
+  .badge{display:inline-block;background:rgba(139,92,246,.15);color:var(--purple);padding:3px 11px;border-radius:999px;font-size:12px;font-weight:600}
+  .step{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin:14px 0}
+  .step h3{margin:0 0 6px;font-size:16px}
+  .step .tag{font-size:12px;color:var(--muted);margin-bottom:12px}
+  .mock{background:var(--bg2);border:1px dashed var(--border);border-radius:10px;padding:16px;margin:12px 0;font-size:13.5px}
+  .mock .row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #22223a}
+  .mock .row:last-child{border-bottom:0}
+  .mock .label{color:var(--muted)}
+  .mock .field{background:#0e0e18;border:1px solid var(--border);border-radius:6px;padding:4px 9px;color:#cfe;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  .mock .btn{background:var(--purple);color:#fff;border:0;border-radius:7px;padding:7px 14px;font-weight:600;font-size:13px}
+  .point{color:var(--purple);font-weight:700}
+  .arrow{color:var(--orange);font-weight:700}
+  code{background:#0e0e18;border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:12.5px;color:#cde}
+  pre{background:#0e0e18;border:1px solid var(--border);border-radius:10px;padding:14px;overflow:auto;font-size:12.5px;color:#cde}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+  th,td{border:1px solid var(--border);padding:9px 11px;text-align:left}
+  th{background:var(--bg2);color:var(--muted);font-weight:600}
+  .ok{color:var(--green);font-weight:600}
+  .warn{color:var(--orange);font-weight:600}
+  .note{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:12px 16px;font-size:13px;color:#f5d9a8;margin:12px 0}
+  .done{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:12px 16px;font-size:13px;color:#bff3cf;margin:12px 0}
+  .seq{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;background:var(--purple);color:#fff;border-radius:50%;font-size:13px;font-weight:700;margin-right:8px}
+  ul.tight{margin:8px 0;padding-left:20px}
+  ul.tight li{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📡 每日监控 + 文档生成 · 配置清单</h1>
+  <p class="sub">把这两个已开发完成的功能从「代码就绪」变成「真实可用」。本页是带界面示意的操作指南（示意非真实后台截图，入口与字段名与真实后台一致）。</p>
+  <span class="badge">无需改动代码 · 只填密钥与配置</span>
+
+  <div class="done">
+    ✅ 前置已就绪：<code>supabase-schema.sql</code> 已包含 <code>monitors</code> 表（带行级安全）及 <code>score_history</code> 趋势字段；<code>lib/monitor.js</code> 监控核心、<code>lib/docs.js</code> 文档生成、<code>POST /api/generate-doc</code>、GitHub Actions 工作流均已实现。
+  </div>
+
+  <h2>一、合规文档生成（无需任何密钥，已可用）</h2>
+  <div class="note">🎁 文档生成功能不依赖外部服务：基于扫描结果在本地生成隐私政策 / Cookie 声明 / DPA 草稿。你只需要在界面上点「📄 生成合规文档」并填表即可体验，跳过本节。</div>
+  <p class="sub">若想把它接到真实站点对外服务，只需确保站点已部署、能访问 <code>/api/generate-doc</code>（见文末部署提醒）。</p>
+
+  <h2>二、每日监控所需密钥配置</h2>
+  <p class="sub">每日监控 = 服务端定时重扫 + 违规邮件告警，需要 3 类配置：Supabase（已建表）、Resend（发信）、CRON_SECRET / SITE_URL（定时任务保护与回跳）。</p>
+
+  <!-- 步骤1 Resend -->
+  <div class="step">
+    <h3><span class="seq">1</span>注册 Resend 并获取 API Key（告警邮件发送）</h3>
+    <p class="tag">用途：监控发现合规回退时，向用户发告警邮件。未配置时告警仅打印日志，便于本地调试。</p>
+    <div class="mock">
+      <div class="row"><span class="label">① 打开 <code>resend.com</code> → Sign Up → 进入 Dashboard</span></div>
+      <div class="row"><span class="label">② 左侧 <span class="point">API Keys</span> → <span class="btn">Create API Key</span></span><span class="field">re_xxxxxxxx</span></div>
+      <div class="row"><span class="label">③ 左侧 <span class="point">Domains</span> → 添加并验证你的发件域名（或用官方 sandbox 域名测试）</span></div>
+      <div class="row"><span class="label"><span class="arrow">↓ 复制</span> 填入 <code>.env</code>：</span><span class="field">RESEND_API_KEY=re_xxx</span></div>
+    </div>
+    <pre># .env
+RESEND_API_KEY=re_你的密钥
+FROM_EMAIL=ComplianceScan &lt;notifications@你的域名.com&gt;</pre>
+  </div>
+
+  <!-- 步骤2 CRON_SECRET + SITE_URL -->
+  <div class="step">
+    <h3><span class="seq">2</span>设置 CRON_SECRET 与 SITE_URL</h3>
+    <p class="tag">用途：CRON_SECRET 保护每日监控接口（防止外人手动触发你花钱扫描）；SITE_URL 用于支付回跳与告警邮件「查看详情」按钮。</p>
+    <div class="mock">
+      <div class="row"><span class="label">生成强随机串（本地终端执行）</span><span class="field">openssl rand -hex 32</span></div>
+      <div class="row"><span class="label"><span class="arrow">↓ 填入</span> <code>.env</code></span><span class="field">CRON_SECRET=随机串</span></div>
+      <div class="row"><span class="label"><span class="arrow">↓ 填入</span> 你的公网域名</span><span class="field">SITE_URL=https://你的域名.com</span></div>
+    </div>
+    <pre># .env
+CRON_SECRET=$(openssl rand -hex 32)
+SITE_URL=https://your-domain.com</pre>
+    <div class="note">⚠️ 若用 Railway/Render 部署，这些变量要填进对应平台的 <b>Environment / Variables</b>，而不是本地 .env。</div>
+  </div>
+
+  <!-- 步骤3 GitHub Actions Secrets -->
+  <div class="step">
+    <h3><span class="seq">3</span>GitHub Actions Secrets（让每日 cron 能调通你的服务）</h3>
+    <p class="tag">用途：仓库里的 <code>.github/workflows/monitor.yml</code> 每天 UTC 02:00 自动 POST 你的 <code>/api/cron/monitor</code>。它需要在请求头带 Bearer CRON_SECRET，且要知道你的 SITE_URL。</p>
+    <div class="mock">
+      <div class="row"><span class="label">① 打开 GitHub 仓库 → <span class="point">Settings</span> → <span class="point">Secrets and variables → Actions</span></span></div>
+      <div class="row"><span class="label">② <span class="btn">New repository secret</span> → Name=<code>SITE_URL</code></span><span class="field">https://你的域名.com</span></div>
+      <div class="row"><span class="label">③ 再建一个 → Name=<code>CRON_SECRET</code>（与 .env 里一致）</span><span class="field">同步骤2的串</span></div>
+      <div class="row"><span class="label"><span class="arrow">↑ 工作流自动读取</span> 无需改代码</span></div>
+    </div>
+    <pre># .github/workflows/monitor.yml 关键片段（已存在）
+- name: Trigger daily monitor
+  run: |
+    curl -X POST "${{ secrets.SITE_URL }}/api/cron/monitor" \
+      -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"</pre>
+    <div class="note">🕑 频率：默认每天一次（UTC 02:00）。可在 <code>monitor.yml</code> 的 <code>cron:</code> 字段改成每天多次或仅工作日。</div>
+  </div>
+
+  <!-- 步骤4 本地验证 -->
+  <div class="step">
+    <h3><span class="seq">4</span>本地手动验证（不依赖 GitHub）</h3>
+    <p class="tag">用途：上线前先确认监控链路跑得通。注意本地脚本直接调用核心函数，<b>不检查 CRON_SECRET</b>；只有 HTTP 接口才检查。</p>
+    <pre># 本地 .env 已填 SUPABASE_SERVICE_KEY（+可选 RESEND_API_KEY）
+node scripts/monitor.js
+
+# 预期输出（无 RESEND 时）：
+# [monitor] 已扫描 N 个监控项，触发 M 次告警（无 RESEND_API_KEY 仅日志）
+# 或在 .env 设好 CRON_SECRET 后模拟接口调用：
+curl -X POST http://localhost:3000/api/cron/monitor \
+  -H "Authorization: Bearer $CRON_SECRET"</pre>
+    <div class="done">✅ 验证通过标志：Supabase 的 <code>monitors</code> 表 <code>last_score</code> / <code>score_history</code> 被更新；配置了 Resend 时收件箱收到告警邮件（评分下降或新增违规时）。</div>
+  </div>
+
+  <h2>三、环境变量汇总表</h2>
+  <table>
+    <thead><tr><th>变量</th><th>必需</th><th>作用</th><th>在哪填</th></tr></thead>
+    <tbody>
+      <tr><td><code>SUPABASE_URL</code></td><td>✅</td><td>数据库地址（监控读取/回写）</td><td>.env / 平台变量</td></tr>
+      <tr><td><code>SUPABASE_SERVICE_KEY</code></td><td>✅</td><td>服务端读 monitors/subscriptions、回写评分</td><td>.env / 平台变量</td></tr>
+      <tr><td><code>SUPABASE_ANON_KEY</code></td><td>✅</td><td>前端登录/历史（RLS 隔离）</td><td>.env / 平台变量</td></tr>
+      <tr><td><code>RESEND_API_KEY</code></td><td>⚠️ 建议</td><td>发送告警邮件；缺省则仅日志</td><td>.env / 平台变量</td></tr>
+      <tr><td><code>FROM_EMAIL</code></td><td>⬜</td><td>发件人显示</td><td>.env / 平台变量</td></tr>
+      <tr><td><code>CRON_SECRET</code></td><td>✅</td><td>保护 /api/cron/monitor 接口</td><td>.env / 平台变量 + GitHub Secret</td></tr>
+      <tr><td><code>SITE_URL</code></td><td>✅</td><td>支付回跳 + 邮件「查看详情」+ cron 目标</td><td>.env / 平台变量 + GitHub Secret</td></tr>
+      <tr><td><code>USE_PLAYWRIGHT</code></td><td>⬜</td><td>true=真浏览器扫描（监控也受益）</td><td>.env / 平台变量</td></tr>
+      <tr><td>支付相关</td><td>⬜</td><td>Creem/Paddle/Stripe（见支付配置清单）</td><td>.env / 平台变量</td></tr>
+    </tbody>
+  </table>
+
+  <h2>四、监控体验链路（上线后）</h2>
+  <ul class="tight">
+    <li>用户注册登录 → 扫描某站点 → 点「🔔 加入每日监控」→ 写入 <code>monitors</code> 表。</li>
+    <li>GitHub Actions（或系统 cron）每天触发 <code>/api/cron/monitor</code> → 重扫 → 评分下降/新增违规则 Resend 发精美告警邮件。</li>
+    <li>用户在「每日监控站点」列表点「📈 查看趋势」→ 前端读取 <code>score_history</code> 渲染 SVG 折线图（含及格线 80）。</li>
+  </ul>
+
+  <div class="note">📌 部署提醒：GitHub Actions 调的是公网 <code>https://你的域名.com</code>，所以请先完成 <code>DEPLOY.md</code> 的部署与 Creem/Supabase 配置，再配本页的监控密钥。</div>
+
+  <p class="sub" style="margin-top:30px;text-align:center;color:var(--muted)">ComplianceScan · 配置清单（监控 + 文档生成）</p>
+</div>
+</body>
+</html>

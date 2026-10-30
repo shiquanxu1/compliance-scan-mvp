@@ -10,10 +10,12 @@
    - 0–100 评分 + 逐项结果 + 整改建议
    - 引擎可切换：**正则**（零依赖）或 **Playwright 真浏览器**（覆盖 JS 渲染的横幅与动态追踪）
 2. **用户体系（Supabase）**：注册 / 登录，扫描结果自动存入 `scans` 表（RLS 隔离，只看自己的）
-3. **支付（Creem，MoR）**：无需海外主体即可收全球钱；支持 **test 模式** 与 **Webhook 验签** 自动更新订阅状态
+3. **支付（MoR，支持多通道切换）**：默认 **Creem**（无需海外主体收全球钱）；可切 **Paddle**（同为 MoR，大陆个人可用）；**Stripe** 仅提供骨架（需海外公司主体，大陆个人不开放）。均支持 **test 模式** 与 **Webhook 验签** 自动更新订阅状态
 4. **合规文档一键生成**：基于扫描结果 + 公司信息，生成**隐私政策 / Cookie 声明 / DPA（数据处理协议）**草稿（Markdown，可复制/下载）
 5. **每日监控 + 邮件告警**：用户把站点加入 `monitors` 表，定时任务每日重扫，合规评分回退或新增违规时通过 **Resend** 发告警邮件；订阅失效自动暂停监控
-6. 零硬后端依赖：Node 原生 http + 全局 fetch；Playwright 动态加载，未装自动降级
+6. **监控评分趋势图**：每次扫描后追加历史评分（`score_history` jsonb），前端一键展开 **SVG 折线图**（含及格线 80、近 30 次），直观看到合规漂移
+7. **告警邮件模板美化**：响应式 HTML 邮件，含品牌头、新增/恢复违规清单、近期趋势缩略图与「查看详情」按钮
+8. 零硬后端依赖：Node 原生 http + 全局 fetch；Playwright 动态加载，未装自动降级
 
 ## 运行
 
@@ -108,13 +110,46 @@ USE_PLAYWRIGHT=true npm start
 
 未配 `SUPABASE_SERVICE_KEY` 时监控自动跳过；未配 `RESEND_API_KEY` 时告警仅打印日志不真实发信（便于本地调试）。
 
+## ⑥ 监控评分趋势图
+
+每次定时监控回写时，`lib/monitor.js` 会把 `{ts, score}` 追加进 `monitors.score_history`（保留最近 30 条）。前端在「每日监控站点」列表点「📈 查看趋势」即渲染纯 SVG 折线图：
+
+- 紫色折线 = 历史评分；绿色虚线 = 及格线 80
+- 横轴为日期刻度，无需任何图表库
+- 数据由前端 Supabase 客户端直读（RLS 隔离，只看自己的）
+
+> 趋势至少需要 2 次监控记录才会绘制；新加的监控站点跑满 2 天后即出现。
+
+## ⑦ 备选支付通道（Stripe / Paddle）
+
+通过环境变量 `PAYMENT_PROVIDER` 切换，无需改代码：
+
+| 值 | 平台 | 大陆个人可行性 | 说明 |
+|---|---|---|---|
+| `creem`（默认） | Creem (MoR) | ✅ 可用 | 无需海外主体，代缴 VAT，test mode + webhook |
+| `paddle` | Paddle (MoR) | ✅ 可用 | 同为 MoR，无需 VAT 注册；前端用 Paddle.js 拉起 checkout |
+| `stripe` | Stripe (PSP) | ❌ 不可 | 需香港/海外公司主体 + 港卡，**仅代码骨架**，不建议起步使用 |
+
+切换示例：
+
+```bash
+# .env
+PAYMENT_PROVIDER=paddle
+PADDLE_API_KEY=your_paddle_key
+PADDLE_PRICE_ID=pri_xxx
+PADDLE_SANDBOX=true   # 先用沙箱测试
+```
+
+- Creem / Paddle 都是 MoR（Merchant of Record），把全球增值税/GST 合规甩给平台，个人最省心。
+- Stripe 是 PSP，自己承担税务合规，且对中国大陆个人不开放——除非你有海外主体，否则别碰。
+
 ## 技术栈
 
 | 层 | 选型 | 说明 |
 |---|---|---|
 | 后端 | Node 原生 http + fetch | 零硬依赖；Playwright 动态加载降级 |
 | 前端 | 原生 HTML/CSS/JS + Supabase JS | 无构建步骤 |
-| 支付 | Creem (MoR) | 个人收全球钱，代缴 VAT，支持 test mode + webhook |
+| 支付 | Creem / Paddle (MoR) / Stripe(骨架) | 可切换；MoR 无需海外主体，支持 test mode + webhook |
 | 数据 | Supabase Postgres + RLS | 注册、历史、`monitors`、订阅状态 |
 | 扫描 | 正则 / Playwright | 可切换，真浏览器覆盖 JS 渲染 |
 | 邮件 | Resend | 监控告警；未配置则降级为日志 |
@@ -123,7 +158,10 @@ USE_PLAYWRIGHT=true npm start
 ## 升级路线（产品化）
 
 - ✅ 持续监控：定时任务每日重扫 + Resend 邮件告警（对应 ¥19/月档）
+- ✅ 监控趋势图：历史评分 SVG 折线，运营可视化
+- ✅ 告警邮件模板：响应式精美 HTML
 - ✅ 合规文档生成：基于扫描结果一键生成隐私政策 / DPA / Cookie 声明
+- ✅ 支付多通道：Creem 默认，Paddle 备选，Stripe 骨架
 - 部署：Railway / Render / VPS（`node server.js`）；上 Vercel 需改 serverless function
 
 ## 合规提示（给运营者自己）

@@ -235,9 +235,15 @@ async function goCheckout() {
     // 无真实结账链接：演示 / 访客模式 → 本地模拟订阅
     if (guestMode) {
       setGuestSub(true);
-      showSubStatus('✅ 持续监控已开启（本机演示，未真实扣费）。配置 Creem 后即真实订阅。', true);
+      showSubStatus(
+        `✅ 持续监控已开启（本机演示，未真实扣费）。配置 ${(config.paymentProvider || 'creem').toUpperCase()} 支付密钥后即真实订阅。`,
+        true
+      );
     } else {
-      showSubStatus('演示环境：结账已模拟，未真实扣费。配置 CREEM_API_KEY 后为真实收款。', true);
+      showSubStatus(
+        `演示环境：结账已模拟，未真实扣费。配置支付密钥（当前通道 ${(config.paymentProvider || 'creem').toUpperCase()}）后为真实收款。`,
+        true
+      );
     }
     checkoutBtn.textContent = '持续监控已开启 ✓';
   } catch (err) {
@@ -432,25 +438,30 @@ async function loadMonitors() {
     monitorsSection.classList.remove('hidden');
     return;
   }
-  monitorSub.textContent = '每日自动重扫，合规评分回退或新增违规时邮件告警。';
+  monitorSub.textContent = '每日自动重扫，合规评分回退或新增违规时邮件告警。点击「查看趋势」查看近期评分变化。';
   monitorList.innerHTML = data
-    .map(
-      (m) => `
-      <div class="history-item">
-        <div>
-          <div class="h-url">${escapeHtml(m.url)}</div>
-          <div class="h-meta">${
-            m.last_scan_at ? '上次扫描 ' + new Date(m.last_scan_at).toLocaleString() : '尚未首次扫描'
-          }${m.active ? '' : ' · 已暂停(订阅失效)'}</div>
+    .map((m) => {
+      const score = m.last_score != null ? m.last_score : '—';
+      const color = m.last_score != null ? scoreColor(m.last_score) : 'var(--muted)';
+      const meta =
+        (m.last_scan_at ? '上次扫描 ' + new Date(m.last_scan_at).toLocaleString() : '尚未首次扫描') +
+        (m.active ? '' : ' · 已暂停(订阅失效)');
+      return `
+      <div class="history-item monitor-item">
+        <div class="monitor-head">
+          <div>
+            <div class="h-url">${escapeHtml(m.url)}</div>
+            <div class="h-meta">${meta}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="h-score" style="color:${color}">${score}</div>
+            <span class="logout" data-del="${encodeURIComponent(m.url)}">移除</span>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <div class="h-score" style="color:${m.last_score != null ? scoreColor(m.last_score) : 'var(--muted)'}">${
-        m.last_score != null ? m.last_score : '—'
-      }</div>
-          <span class="logout" data-del="${encodeURIComponent(m.url)}">移除</span>
-        </div>
-      </div>`
-    )
+        <button class="trend-toggle" data-toggle="${encodeURIComponent(m.url)}">📈 查看趋势</button>
+        <div class="trend-box hidden" data-trend="${encodeURIComponent(m.url)}">${renderTrend(m.score_history)}</div>
+      </div>`;
+    })
     .join('');
   monitorsSection.classList.remove('hidden');
   monitorList.querySelectorAll('[data-del]').forEach((el) => {
@@ -462,6 +473,56 @@ async function loadMonitors() {
       loadMonitors();
     });
   });
+  monitorList.querySelectorAll('[data-toggle]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const box = monitorList.querySelector(`[data-trend="${el.dataset.toggle}"]`);
+      if (!box) return;
+      box.classList.toggle('hidden');
+      el.textContent = box.classList.contains('hidden') ? '📈 查看趋势' : '📉 收起趋势';
+    });
+  });
+}
+
+// 基于监控历史分数的 SVG 折线趋势图（纯前端，无外部依赖）
+function renderTrend(history) {
+  if (!history || history.length < 2) {
+    return '<p class="trend-empty">监控至少运行 2 次后才会显示趋势图。</p>';
+  }
+  const w = 560, h = 140, pad = 26;
+  const scores = history.map((p) => p.score);
+  const min = Math.min(...scores, 0), max = Math.max(...scores, 100);
+  const range = max - min || 1;
+  const pts = history.map((p, i) => {
+    const x = pad + (i * (w - 2 * pad)) / (history.length - 1);
+    const y = h - pad - ((p.score - min) / range) * (h - 2 * pad);
+    return [x, y];
+  });
+  const poly = pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const areaPts = `${pad},${h - pad} ${poly} ${w - pad},${h - pad}`;
+  const y80 = h - pad - ((80 - min) / range) * (h - 2 * pad);
+  const every = Math.ceil(history.length / 5);
+  const labels = history
+    .map((p, i) => {
+      if (i % every !== 0 && i !== history.length - 1) return '';
+      const x = pad + (i * (w - 2 * pad)) / (history.length - 1);
+      const d = new Date(p.ts);
+      return `<text x="${x.toFixed(1)}" y="${h - pad + 16}" font-size="10" fill="#9ca3af" text-anchor="middle">${
+        d.getMonth() + 1
+      }/${d.getDate()}</text>`;
+    })
+    .join('');
+  const last = pts[pts.length - 1];
+  return `<svg class="trend-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <defs><linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(139,92,246,.28)"/><stop offset="100%" stop-color="rgba(139,92,246,0)"/>
+    </linearGradient></defs>
+    <polygon points="${areaPts}" fill="url(#tg)"/>
+    <line x1="${pad}" y1="${y80.toFixed(1)}" x2="${w - pad}" y2="${y80.toFixed(1)}" stroke="#22c55e" stroke-dasharray="4 4" stroke-width="1"/>
+    <text x="${w - pad}" y="${(y80 - 5).toFixed(1)}" font-size="10" fill="#22c55e" text-anchor="end">及格线 80</text>
+    <polyline points="${poly}" fill="none" stroke="#8b5cf6" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4" fill="#8b5cf6"/>
+    ${labels}
+  </svg>`;
 }
 function hideMonitors() {
   monitorsSection.classList.add('hidden');

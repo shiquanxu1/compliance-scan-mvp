@@ -265,3 +265,15 @@ a:hover { text-decoration: underline; }
 }
 .modal-card.wide { max-width: 680px; width: 92%; }
 .modal-title { margin: 0 0 6px; font-size: 18px; }
+
+/* ---- 每日监控趋势图 ---- */
+.monitor-item { flex-direction: column; align-items: stretch; gap: 8px; }
+.monitor-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.trend-toggle {
+  align-self: flex-start; background: transparent; border: 1px solid var(--border);
+  color: var(--muted); padding: 5px 12px; border-radius: 7px; cursor: pointer; font-size: 12.5px;
+}
+.trend-toggle:hover { border-color: var(--purple); color: var(--purple); }
+.trend-box { margin-top: 4px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; }
+.trend-svg { width: 100%; height: auto; display: block; }
+.trend-empty { color: var(--muted); font-size: 13px; margin: 6px 0; }

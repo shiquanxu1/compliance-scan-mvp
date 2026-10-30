@@ -39,18 +39,41 @@ const CREEM_CONFIGURED = !!(process.env.CREEM_API_KEY && process.env.CREEM_PRODU
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'ComplianceScan <onboarding@resend.dev>';
 const CRON_SECRET = process.env.CRON_SECRET || '';
+const SITE_URL = process.env.SITE_URL || `http://localhost:${PORT}`;
+
+// 支付通道：creem（默认，MoR，无需海外主体） | paddle（MoR，无需海外主体） | stripe（需海外主体）
+const PAYMENT_PROVIDER = (process.env.PAYMENT_PROVIDER || 'creem').toLowerCase();
+const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_PRICE = process.env.STRIPE_PRICE_ID || '';
+const PADDLE_API_KEY = process.env.PADDLE_API_KEY || '';
+const PADDLE_PRICE = process.env.PADDLE_PRICE_ID || '';
+const PADDLE_SANDBOX = process.env.PADDLE_SANDBOX === 'true';
+const PADDLE_BASE = PADDLE_SANDBOX ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
+const PAYMENT_CONFIGURED =
+  PAYMENT_PROVIDER === 'stripe'
+    ? !!(STRIPE_SECRET && STRIPE_PRICE)
+    : PAYMENT_PROVIDER === 'paddle'
+    ? !!(PADDLE_API_KEY && PADDLE_PRICE)
+    : CREEM_CONFIGURED;
 
 // ============================================================
 // Creem 结账 + Webhook
 // ============================================================
 async function createCheckout(email) {
+  if (PAYMENT_PROVIDER === 'stripe') return createCheckoutStripe(email);
+  if (PAYMENT_PROVIDER === 'paddle') return createCheckoutPaddle(email);
+  return createCheckoutCreem(email);
+}
+
+async function createCheckoutCreem(email) {
   const apiKey = process.env.CREEM_API_KEY;
   const productId = process.env.CREEM_PRODUCT_ID;
   if (!apiKey || !productId) {
     return {
       demo: true,
+      provider: 'creem',
       checkoutUrl: 'https://www.creem.io',
-      message: '未配置 Creem API Key，当前为演示跳转。在 .env 填入真实密钥后即为真实结账。',
+      message: '未配置 Creem API Key，当前为演示跳转。在 .env 填入真实密钥后即为真实结账（无需海外主体）。',
     };
   }
   const res = await fetch(`${CREEM_BASE}/v1/checkout`, {
@@ -64,7 +87,66 @@ async function createCheckout(email) {
   });
   const d = await res.json();
   if (!res.ok) throw new Error(d?.message || 'Creem 结账创建失败');
-  return { demo: false, testMode: CREEM_TEST, checkoutUrl: d.checkout_url };
+  return { demo: false, provider: 'creem', testMode: CREEM_TEST, checkoutUrl: d.checkout_url };
+}
+
+async function createCheckoutStripe(email) {
+  // 注意：Stripe 不对中国大陆个人开放，需香港/海外公司主体 + 港卡。此处仅提供代码骨架。
+  if (!STRIPE_SECRET || !STRIPE_PRICE) {
+    return {
+      demo: true,
+      provider: 'stripe',
+      checkoutUrl: 'https://stripe.com',
+      message: '未配置 Stripe 密钥（STRIPE_SECRET_KEY / STRIPE_PRICE_ID）。注意 Stripe 需海外主体，大陆个人不开放。',
+    };
+  }
+  const body = new URLSearchParams();
+  body.append('mode', 'subscription');
+  body.append('line_items[0][price]', STRIPE_PRICE);
+  body.append('line_items[0][quantity]', '1');
+  body.append('success_url', `${SITE_URL}?checkout=success`);
+  body.append('cancel_url', SITE_URL);
+  if (email) body.append('customer_email', email);
+  const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${STRIPE_SECRET}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d?.error?.message || 'Stripe 结账创建失败');
+  return { demo: false, provider: 'stripe', checkoutUrl: d.url };
+}
+
+async function createCheckoutPaddle(email) {
+  // Paddle 是 MoR（代收代付/代缴税），与 Creem 同类，中国大陆个人可用，无需 VAT 注册。
+  if (!PADDLE_API_KEY || !PADDLE_PRICE) {
+    return {
+      demo: true,
+      provider: 'paddle',
+      checkoutUrl: 'https://www.paddle.com',
+      message: '未配置 Paddle 密钥（PADDLE_API_KEY / PADDLE_PRICE_ID）。Paddle 为 MoR，大陆个人可用，无需海外主体。',
+    };
+  }
+  // 创建订阅交易（transaction），前端用 Paddle.js 拉起 hosted checkout。
+  const res = await fetch(`${PADDLE_BASE}/transactions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${PADDLE_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: [{ price_id: PADDLE_PRICE, quantity: 1 }],
+      custom_data: { plan: 'monitor-monthly' },
+      ...(email ? { customer_email: email } : {}),
+    }),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d?.error?.message || 'Paddle 交易创建失败');
+  // Paddle 推荐前端 Paddle.js 打开 checkout（hosted checkout），这里先返回 transactionId 供前端集成。
+  return {
+    demo: false,
+    provider: 'paddle',
+    sandbox: PADDLE_SANDBOX,
+    transactionId: d.data?.id,
+    message: 'Paddle 交易已创建，前端需用 Paddle.js 打开 checkout（详见 README）。',
+  };
 }
 
 function verifyCreemWebhook(rawBody, signature) {
@@ -207,7 +289,8 @@ const server = http.createServer(async (req, res) => {
         supabaseUrl: SUPABASE_URL,
         supabaseAnon: SUPABASE_ANON,
         playwrightEnabled: PLAYWRIGHT_OK,
-        creemDemo: !CREEM_CONFIGURED,
+        paymentProvider: PAYMENT_PROVIDER,
+        paymentDemo: !PAYMENT_CONFIGURED,
         creemTest: CREEM_TEST,
         docGenEnabled: true,
         monitorEnabled: !!SUPABASE_SERVICE,

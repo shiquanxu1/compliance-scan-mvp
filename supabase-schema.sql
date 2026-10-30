@@ -64,3 +64,6 @@ create policy "monitors_insert_own" on public.monitors
 drop policy if exists "monitors_delete_own" on public.monitors;
 create policy "monitors_delete_own" on public.monitors
   for delete using (auth.uid() = user_id);
+
+-- 若表已存在，追加趋势历史字段（幂等）
+alter table public.monitors add column if not exists score_history jsonb not null default '[]'::jsonb;
