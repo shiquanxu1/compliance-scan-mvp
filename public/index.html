@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ComplianceScan — EU/UK 网站合规检测</title>
+  <meta name="description" content="几秒钟看清你的网站是否符合 GDPR / EU AI Act。免费合规扫描，持续监控订阅。" />
+  <link rel="stylesheet" href="/styles.css" />
+  <!-- Supabase JS（前端直连，anon key 公开安全） -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="nav">
+    <div class="brand">◎ ComplianceScan</div>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#pricing">定价</a>
+      <div id="auth-area"></div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <span class="badge">GDPR · EU AI Act · WCAG</span>
+      <h1>几秒钟看清你的网站<br />是否符合欧盟合规要求</h1>
+      <p class="sub">面向欧盟 / 英国中小网站与独立开发者的合规体检。免费扫描，注册后自动留存历史。</p>
+
+      <form id="scan-form" class="scan-box">
+        <input id="url-input" type="text" placeholder="输入你的网站域名，如 example.com" autocomplete="off" required />
+        <button type="submit" id="scan-btn">免费扫描</button>
+      </form>
+      <p class="hint" id="scan-hint">我们仅读取首页做合规规则检查，不会存储你的站点内容。</p>
+      <p id="demo-note" class="demo-note hidden"></p>
+    </section>
+
+    <!-- 扫描结果区（默认隐藏） -->
+    <section id="result" class="result hidden" aria-live="polite">
+      <div class="result-card">
+        <div class="score-wrap">
+          <svg class="ring" viewBox="0 0 120 120" width="140" height="140" aria-hidden="true">
+            <circle class="ring-bg" cx="60" cy="60" r="54" />
+            <circle id="ring-fg" class="ring-fg" cx="60" cy="60" r="54" />
+          </svg>
+          <div class="score-num"><span id="score-val">0</span><small>/100</small></div>
+        </div>
+        <div class="score-meta">
+          <h2 id="score-label">合规评分</h2>
+          <p id="score-url" class="url"></p>
+          <p id="score-summary" class="summary"></p>
+          <p id="engine-tag" class="engine-tag"></p>
+        </div>
+      </div>
+
+      <div id="checks" class="checks"></div>
+
+      <div id="trackers-box" class="trackers-box hidden">
+        <h3>检测到的追踪脚本</h3>
+        <div id="trackers" class="chips"></div>
+      </div>
+
+      <div id="reco-box" class="reco-box hidden">
+        <h3>整改建议</h3>
+        <ul id="reco-list"></ul>
+      </div>
+
+      <div id="save-note" class="save-note hidden"></div>
+      <div id="error-box" class="error-box hidden"></div>
+
+      <div class="cta">
+        <button id="checkout-btn" class="btn-primary">解锁持续监控 · ¥19/月</button>
+        <p class="cta-sub">每日自动重扫，违规第一时间邮件告警。随时取消。</p>
+        <p id="sub-status" class="sub-status hidden"></p>
+      </div>
+    </section>
+
+    <!-- 扫描历史（登录后显示） -->
+    <section id="history" class="history hidden">
+      <h2>我的扫描历史</h2>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
+    <section id="features" class="features">
+      <div class="feature">
+        <div class="f-icon">🔍</div>
+        <h3>自动合规扫描</h3>
+        <p>检测 HTTPS、隐私政策、Cookie 同意、追踪脚本与法律实体信息，输出可执行的体检报告。</p>
+      </div>
+      <div class="feature">
+        <div class="f-icon">📄</div>
+        <h3>合规文档生成</h3>
+        <p>基于扫描结果一键生成隐私政策、DPA 数据处理协议与 Cookie 声明（规划中）。</p>
+      </div>
+      <div class="feature">
+        <div class="f-icon">🔔</div>
+        <h3>持续监控告警</h3>
+        <p>每日重扫，新上线的营销脚本一旦触碰合规基线，立刻邮件提醒你。</p>
+      </div>
+    </section>
+
+    <section id="pricing" class="pricing">
+      <h2>定价</h2>
+      <div class="price-card">
+        <div class="price">¥19<span>/月</span></div>
+        <ul>
+          <li>✓ 单站点每日自动监控</li>
+          <li>✓ 违规邮件告警</li>
+          <li>✓ 合规文档模板</li>
+          <li>✓ 随时取消</li>
+        </ul>
+        <button id="price-btn" class="btn-primary">开始订阅</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>ComplianceScan · Demo（MVP）</p>
+    <p class="muted">
+      <a href="#">隐私政策</a> · <a href="#">服务条款</a> · <a href="#">退款政策</a>
+      （运营本站点时也请补齐这些页面）
+    </p>
+  </footer>
+
+  <!-- 登录 / 注册模态 -->
+  <div id="auth-modal" class="modal hidden">
+    <div class="modal-card">
+      <button class="modal-close" id="auth-close" aria-label="关闭">×</button>
+      <div class="tabs">
+        <button class="tab active" data-tab="login">登录</button>
+        <button class="tab" data-tab="signup">注册</button>
+      </div>
+      <form id="auth-form">
+        <input id="auth-email" type="email" placeholder="邮箱" autocomplete="email" required />
+        <input id="auth-password" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password" required />
+        <button type="submit" id="auth-submit" class="btn-primary">登录</button>
+        <p id="auth-msg" class="auth-msg"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

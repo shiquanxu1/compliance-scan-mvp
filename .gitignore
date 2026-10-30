@@ -1,0 +1,15 @@
+# 依赖（部署时平台会重新 npm install）
+node_modules/
+
+# 密钥！切勿提交（含 Creem / Supabase 真实 key）
+.env
+.env.local
+.env.*.local
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+.DS_Store
+
+# 本地数据 / 测试产物
+scan_out.json

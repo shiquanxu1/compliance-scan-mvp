@@ -1,0 +1,31 @@
+# Render.com Blueprint
+# 用法：把本目录推到 GitHub → Render 新建「Blueprint」→ 连接仓库 → 选此文件即自动建好 Web Service。
+# 或 Render 面板手动新建 Web Service：Build Command = npm install，Start Command = node server.js。
+services:
+  - type: web
+    name: compliancescan
+    runtime: node
+    plan: free
+    region: oregon          # 离欧美用户近；可选 singapore/frankfurt
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_PLAYWRIGHT
+        value: "false"      # 默认正则引擎；免费实例不必下载 Chromium（如需真浏览器再改 true 并加 build 步骤）
+      - key: CREEM_TEST_MODE
+        value: "true"       # 先用测试模式；上线真实收款再改 false
+      - key: CREEM_API_KEY
+        sync: false
+      - key: CREEM_PRODUCT_ID
+        sync: false
+      - key: CREEM_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
