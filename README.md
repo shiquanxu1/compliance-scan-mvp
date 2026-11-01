@@ -25,7 +25,7 @@
 
 ```bash
 cd compliance-mvp
-npm install                 # 安装 playwright（如不需要可跳过，自动降级正则）
+npm install                 # 零依赖部署：不安装任何包即可运行（扫描默认用正则引擎）
 npm start                  # 或 node server.js
 # 打开 http://localhost:3000
 ```

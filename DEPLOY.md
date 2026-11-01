@@ -5,17 +5,21 @@
 
 ---
 
-## 0. 先把仓库准备好
+## 0. 把仓库推到 GitHub（部署平台从 Git 拉代码）
+
+> 本项目**已经是 Git 仓库**（无需 `git init`）。Railway / Render 都是从 GitHub 拉代码构建的，所以你只需把它推到一个 GitHub 仓库即可。
 
 ```bash
 cd compliance-mvp
-git init
 git add -A
-git commit -m "ComplianceScan MVP"
-# 推到 GitHub（新建一个私有/公开仓库）
+git commit -m "ComplianceScan MVP ready to deploy"
+# 在 github.com 新建一个仓库（公开/私有均可），拿到地址后：
+git remote add origin https://github.com/你的用户名/compliance-mvp.git
+git branch -M main
+git push -u origin main
 ```
 
-部署平台都是从 Git 仓库拉代码构建的，所以先有仓库。
+> 国内访问 GitHub 慢/被墙：给 Git 配代理（如 `git config --global http.proxy http://127.0.0.1:7890`，端口按你的代理工具改），或在已翻墙的终端里执行上面的 push。
 
 ---
 
@@ -44,9 +48,15 @@ git commit -m "ComplianceScan MVP"
 
 ## 环境变量清单
 
+> ⚠️ **把本地 `.env` 里已经填好的值「原样复制」到平台**（不要手敲，避免错漏）：
+> `CREEM_API_KEY`、`CREEM_PRODUCT_ID`、`CREEM_TEST_MODE`、`CREEM_WEBHOOK_SECRET`、
+> `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_KEY`。
+> `.env` 文件本身已被 gitignore，**不会**随代码上传，所以这些值必须逐个在平台后台再填一遍。
+
 | 变量 | 是否必填 | 说明 |
 |---|---|---|
 | `NODE_ENV` | 建议 | 填 `production` |
+| `SITE_URL` | 建议 | 你的线上域名（含 https，如 `https://compliancescan.up.railway.app`），用于监控邮件「查看详情」链接与回跳 |
 | `USE_PLAYWRIGHT` | 可选 | `false`（默认，免费实例无需 Chromium）；`true` 需额外 build 下载浏览器 |
 | `CREEM_API_KEY` | 收款必填 | Creem 后台 Developers → API Keys 的 Secret Key |
 | `CREEM_PRODUCT_ID` | 收款必填 | 你创建的订阅产品 ID |
