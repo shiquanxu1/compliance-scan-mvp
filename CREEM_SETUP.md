@@ -74,13 +74,23 @@ CREEM_WEBHOOK_SECRET=whsec_你刚复制的signing_secret
 
 `PAYMENT_PROVIDER` 保持 `creem`（默认值，不用改）。
 
-## 第 7 步：本地验证结账（不扣真实钱）
+## 第 7 步：验证结账接通
+
+### A. 本地验证（不扣真实钱）
 1. 重启本地服务（让新 `.env` 生效）
 2. 浏览器开 `http://localhost:3000/` → 点任一付费套餐的「订阅 / 结账」
 3. 预期：后端返回真实 `checkout_url`（不再是「演示跳转」），浏览器跳到 Creem 的 **Test 收银台**
 4. Test 模式下用 Creem 提供的**测试卡**完成一笔支付（不扣真钱），验证能跳回 success 页
 
-> 验证「跳转成功」即代表 Creem 接通。Webhook 回写订阅状态需部署后验证（见第 5 步注意事项）。
+> ⚠️ **如果本地验证报错**（例如返回 `Creem HTTP 404/500`，且错误体是 `{"statusCode":500,"timestamp":...,"path":...}` 这种格式），通常是**本地网络环境拦截/代理了对 Creem 的对外 API 调用**，并非你配置有误。本项目已把 Creem 真实报错原样暴露出来，方便排查——若错误体带 `message` 字段才是 Creem 原生业务错误（如字段问题）；若只是上面的代理层 404/500，则属于网络环境限制。遇到这种情况**跳过本地验证，直接走下面 B 的部署后验证**即可。
+
+### B. 部署后验证（SOP，推荐）
+把项目部署到 Railway / Render（配置见 `DEPLOY.md` / `deploy-guide.html`）后：
+1. 在平台的环境变量里填与 `.env` 相同的 4 个值：`CREEM_API_KEY` / `CREEM_PRODUCT_ID` / `CREEM_TEST_MODE=true` / `CREEM_WEBHOOK_SECRET`
+2. 访问 `https://你的域名/api/config` → 应显示 `paymentDemo:false`、`creemTest:true`
+3. 首页点「订阅 Starter」→ 应跳到 Creem 收银台（不再是演示）
+4. 用 Creem 测试卡 `4111 1111 1111 1111` 完成一笔测试付款（不扣真钱）
+5. 查看服务端日志 / Supabase `subscriptions` 表，确认 Webhook 把订阅状态写成 `active`
 
 ---
 
@@ -95,3 +105,4 @@ CREEM_WEBHOOK_SECRET=whsec_你刚复制的signing_secret
 - **Q：localStorage 里之前的演示订单？** → 访客模式数据在浏览器本地，不影响真实结账。
 - **Q：4 档套餐怎么各自收费？** → 当前单 Product ID 模式，先跑通一档；多档映射见第 4 步说明。
 - **Q：Webhook 本地收不到？** → 正常，本地 `localhost` 不可公网访问；部署后配真实域名即可。
+- **Q：本地验证一直报 `Creem HTTP 404/500`、错误体是 `{"statusCode":500,...}`？** → 多为本地网络环境拦截了对 Creem 的对外 API 调用（沙箱/代理），**不是你配置错了**。本地 `.env` 四项填对即可，到 Railway/Render 用真实 key 部署就能正常接通；若部署后仍报错且错误体带 `message` 字段，再按该 message 排查请求字段。

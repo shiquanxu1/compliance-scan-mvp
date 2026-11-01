@@ -108,8 +108,12 @@ async function createCheckoutCreem(email, plan) {
       metadata: { plan: plan || 'starter' },
     }),
   });
-  const d = await res.json();
-  if (!res.ok) throw new Error(d?.message || 'Creem 结账创建失败');
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = JSON.stringify(d);
+    throw new Error(`Creem HTTP ${res.status}: ${detail}`);
+  }
+  if (!d.checkout_url) throw new Error(`Creem 响应缺少 checkout_url: ${JSON.stringify(d)}`);
   return { demo: false, provider: 'creem', testMode: CREEM_TEST, checkoutUrl: d.checkout_url };
 }
 
