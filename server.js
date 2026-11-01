@@ -21,6 +21,19 @@ const crypto = require('crypto');
 
 const { scanSite, PLAYWRIGHT_OK } = require('./lib/scanner');
 
+// 解析 .env（零依赖；仅当 process.env 未设置时补充，部署平台直接注入的变量优先）
+function loadEnv() {
+  const envPath = path.join(__dirname, '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
+    if (m && !process.env[m[1]]) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  }
+}
+loadEnv();
+
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 

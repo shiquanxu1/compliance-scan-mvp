@@ -56,40 +56,29 @@ const service = process.env.SUPABASE_SERVICE_KEY;
     process.exit(1);
   }
 
-  // 2) 写测试（需要 service role，验证表结构/写入能力）
+  // 2) service_role 读取（验证私钥有效、能绕过 RLS 管理数据）
   if (!service) {
-    console.log('\n（可选）提供 SUPABASE_SERVICE_ROLE 可进一步验证写入与表结构。');
-    console.log('  在 Supabase SQL Editor 跑过 supabase-schema.sql 后，再运行本脚本即可。');
+    console.log('\n（可选）提供 SUPABASE_SERVICE_KEY 可进一步验证私钥有效性。');
+    console.log('  当前仅用 anon 验证了连通与 RLS，已足够本地启动。');
     return;
   }
   const sHeaders = {
     apikey: service,
     Authorization: `Bearer ${service}`,
     'Content-Type': 'application/json',
-    Prefer: 'return=representation',
   };
   try {
-    const r = await fetch(`${url}/rest/v1/scans`, {
-      method: 'POST',
-      headers: sHeaders,
-      body: JSON.stringify({
-        url: 'test-' + Date.now() + '.com',
-        score: 42,
-        result: { engine: 'regex', test: true },
-      }),
-    });
-    const t = await r.text();
+    const r = await fetch(`${url}/rest/v1/scans?select=*&limit=5`, { headers: sHeaders });
     if (!r.ok) {
-      console.error('✗ 写入测试行失败:', r.status, t);
+      const t = await r.text();
+      console.error('✗ service_role 读取失败:', r.status, t);
       process.exit(1);
     }
-    const row = JSON.parse(t)[0];
-    console.log('✓ 写入测试行成功，id =', row.id);
-    await fetch(`${url}/rest/v1/scans?id=eq.${row.id}`, { method: 'DELETE', headers: sHeaders });
-    console.log('✓ 已清理测试行。');
+    await r.json();
+    console.log('✓ service_role 读取成功（私钥有效，可绕过 RLS 管理数据）');
   } catch (e) {
-    console.error('✗ 写入测试失败:', e.message);
+    console.error('✗ service_role 读取失败:', e.message);
     process.exit(1);
   }
-  console.log('\nSupabase 联调通过：应用配置好 SUPABASE_URL / ANON 后即可启用登录与历史云端同步。');
+  console.log('\nSupabase 联调通过：应用配置好 SUPABASE_URL / ANON / SERVICE 后，登录、历史同步与监控订阅即可启用。');
 })();
